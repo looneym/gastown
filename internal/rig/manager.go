@@ -116,21 +116,21 @@ func (m *Manager) loadRig(name string, entry config.RigEntry) (*Rig, error) {
 		Config:    entry.BeadsConfig,
 	}
 
-	// Scan for polecats
+	// Scan for polecats (skip hidden directories like .claude)
 	polecatsDir := filepath.Join(rigPath, "polecats")
 	if entries, err := os.ReadDir(polecatsDir); err == nil {
 		for _, e := range entries {
-			if e.IsDir() {
+			if e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
 				rig.Polecats = append(rig.Polecats, e.Name())
 			}
 		}
 	}
 
-	// Scan for crew workers
+	// Scan for crew workers (skip hidden directories like .claude)
 	crewDir := filepath.Join(rigPath, "crew")
 	if entries, err := os.ReadDir(crewDir); err == nil {
 		for _, e := range entries {
-			if e.IsDir() {
+			if e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
 				rig.Crew = append(rig.Crew, e.Name())
 			}
 		}
