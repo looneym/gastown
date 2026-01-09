@@ -17,6 +17,7 @@ import (
 	"github.com/steveyegge/gastown/internal/constants"
 	"github.com/steveyegge/gastown/internal/dog"
 	"github.com/steveyegge/gastown/internal/events"
+	"github.com/steveyegge/gastown/internal/rig"
 	"github.com/steveyegge/gastown/internal/session"
 	"github.com/steveyegge/gastown/internal/style"
 	"github.com/steveyegge/gastown/internal/tmux"
@@ -338,6 +339,10 @@ func runSling(cmd *cobra.Command, args []string) error {
 		}
 		return fmt.Errorf("bead %s is already pinned to %s\nUse --force to re-sling", beadID, assignee)
 	}
+
+	// Policy check: warn if orphan work is being dispatched to a strict rig
+	rigName := extractRigNameFromAgent(targetAgent)
+	warnIfPolicyViolation(townRoot, rigName, beadID, info)
 
 	// Auto-convoy: check if issue is already tracked by a convoy
 	// If not, create one for dashboard visibility (unless --no-convoy is set)
@@ -757,6 +762,7 @@ type beadInfo struct {
 	Title    string `json:"title"`
 	Status   string `json:"status"`
 	Assignee string `json:"assignee"`
+	Parent   string `json:"parent,omitempty"`
 }
 
 // getBeadInfo returns status and assignee for a bead.
@@ -781,6 +787,78 @@ func getBeadInfo(beadID string) (*beadInfo, error) {
 		return nil, fmt.Errorf("bead '%s' not found", beadID)
 	}
 	return &infos[0], nil
+}
+
+// extractRigNameFromAgent extracts the rig name from an agent ID.
+// Returns empty string if the agent is not rig-based (e.g., mayor, deacon).
+// Examples:
+//   - "gastown/polecats/nux" -> "gastown"
+//   - "greenplace/witness" -> "greenplace"
+//   - "mayor/" -> ""
+//   - "deacon/" -> ""
+func extractRigNameFromAgent(agentID string) string {
+	// Remove trailing slash (for town-level agents like "mayor/")
+	agentID = strings.TrimSuffix(agentID, "/")
+
+	// Town-level agents have no rig
+	if agentID == "mayor" || agentID == "deacon" || strings.HasPrefix(agentID, "deacon/dogs/") {
+		return ""
+	}
+
+	// Extract first component as rig name
+	parts := strings.Split(agentID, "/")
+	if len(parts) > 0 {
+		return parts[0]
+	}
+	return ""
+}
+
+// warnIfPolicyViolation checks rig config and bead epic status.
+// Warns when orphan work (no parent epic) is dispatched to a strict rig.
+// This helps the Mayor be aware of policy violations without blocking dispatch.
+func warnIfPolicyViolation(townRoot, rigName, beadID string, beadInfo *beadInfo) {
+	// Only check policy for rig targets (not mayor, deacon, etc.)
+	if rigName == "" {
+		return
+	}
+
+	// Load the rig config to check its settings
+	rigPath := filepath.Join(townRoot, rigName)
+	rigConfig, err := rig.LoadRigConfig(rigPath)
+	if err != nil {
+		// Rig not found or invalid - skip policy check
+		return
+	}
+
+	// Construct Rig to use GetStringConfig method
+	// Convert rig.BeadsConfig to config.BeadsConfig
+	var beadsConfig *config.BeadsConfig
+	if rigConfig.Beads != nil {
+		beadsConfig = &config.BeadsConfig{
+			Prefix: rigConfig.Beads.Prefix,
+		}
+	}
+	r := &rig.Rig{
+		Name:   rigName,
+		Path:   rigPath,
+		Config: beadsConfig,
+	}
+
+	// Check if rig has epic_policy set to "strict"
+	epicPolicy := r.GetStringConfig("epic_policy")
+	if epicPolicy != "strict" {
+		return
+	}
+
+	// Check if the bead is orphan work (no parent epic)
+	if beadInfo.Parent == "" {
+		// Orphan work being dispatched to strict rig - warn
+		fmt.Printf("\n%s Policy Violation Warning:\n", style.Bold.Render("⚠"))
+		fmt.Printf("  Rig '%s' has epic_policy=strict but bead %s has no parent epic\n", rigName, beadID)
+		fmt.Printf("  Consider filing an epic first: bd create --type=epic --title='Feature Name'\n")
+		fmt.Printf("  Then set parent: bd update %s --parent=<epic-id>\n", beadID)
+		fmt.Printf("  Continuing dispatch anyway...\n\n")
+	}
 }
 
 // detectCloneRoot finds the root of the current git clone.
@@ -1457,6 +1535,9 @@ func runBatchSling(beadIDs []string, rigName string, townBeadsDir string) error 
 			fmt.Printf("  %s Already pinned (use --force to re-sling)\n", style.Dim.Render("✗"))
 			continue
 		}
+
+		// Policy check: warn if orphan work is being dispatched to a strict rig
+		warnIfPolicyViolation(townRoot, rigName, beadID, info)
 
 		// Spawn a fresh polecat
 		spawnOpts := SlingSpawnOptions{
