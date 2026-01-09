@@ -1,0 +1,219 @@
+description = """
+Mayor startup protocol for structured session onboarding.
+
+The Mayor is Gas Town's global coordinator, sitting above all rigs and managing
+cross-rig work. Unlike autonomous agents (Witness, Refinery, Deacon), the Mayor
+is human-managed and waits for direction after completing startup discovery.
+
+This molecule provides a structured checklist for every Mayor session:
+- Discover hooked work (GUPP principle)
+- Review unread mail for escalations and handoffs
+- Check grease epic status (Gas Town infrastructure work)
+- Survey active convoys across all rigs
+- Assess rig health
+- Present unified dashboard to El Presidente
+- Await orders
+
+**Mayor does NOT edit code** - dispatch work to crew/polecats instead."""
+formula = "mol-mayor-startup"
+version = 1
+
+[[steps]]
+id = "check-hook"
+title = "Check for hooked work"
+description = """
+Check your hook for assigned work. This is GUPP in action.
+
+```bash
+gt hook
+```
+
+**If work is hooked:**
+- You have an assignment (bead or molecule or mail)
+- EXECUTE IMMEDIATELY per the Propulsion Principle
+- This molecule should NOT be running (GUPP overrides startup)
+
+**If hook is empty:**
+- Normal startup - continue to check-mail step
+
+**Hookable mail:**
+If you find mail on your hook (not a molecule), read the mail content and
+interpret the prose instructions. This enables ad-hoc tasks without formal beads.
+
+**Work hooked?** → You shouldn't be in this startup molecule. Execute the hooked work.
+**Hook empty?** → Continue startup discovery.
+"""
+
+[[steps]]
+id = "check-mail"
+title = "Review unread messages"
+needs = ["check-hook"]
+description = """
+Check your inbox for escalations, handoffs, and messages.
+
+```bash
+gt mail inbox
+```
+
+Look for:
+- **HANDOFF**: Context from previous Mayor session
+- **Escalations**: Issues from Witnesses/Refineries needing attention
+- **HELP/Blocked**: Requests for Mayor intervention
+- **Convoy updates**: Status from ongoing batch work
+
+**Do NOT process messages yet** - this step is for discovery only.
+Just note what's waiting. Processing happens after you present the
+dashboard to El Presidente in report-status step.
+
+Track count of unread messages by type for dashboard.
+"""
+
+[[steps]]
+id = "grease-status"
+title = "Review grease epic status"
+needs = ["check-mail"]
+description = """
+Check on Gas Town infrastructure work (the grease epic).
+
+The grease epic (hq-rib) tracks Gas Town setup, polish, and enhancements:
+
+```bash
+bd show hq-rib
+```
+
+Review:
+- Epic description and current phase
+- Open child issues (bd list --parent=hq-rib --status=open)
+- Recent completions
+
+**Related tracking:**
+- hq-h4yz: Gas Town infrastructure setup tracking
+- Town-level coordination beads use hq-* prefix
+
+Track for dashboard:
+- Grease epic status (phase/progress)
+- Count of open grease issues
+- Any blocked grease work
+"""
+
+[[steps]]
+id = "convoy-status"
+title = "Check active convoys"
+needs = ["grease-status"]
+description = """
+Survey active convoys across all rigs.
+
+Convoys are groups of beads being worked in batch:
+
+```bash
+gt convoy list
+```
+
+For each active convoy:
+- Name and ID
+- How many beads (total, completed, in-progress, pending)
+- Which rig
+- Any stuck/blocked beads
+
+Track for dashboard:
+- Total active convoys
+- Per-convoy progress summary
+- Any convoys needing attention
+"""
+
+[[steps]]
+id = "rig-status"
+title = "Check rig health"
+needs = ["convoy-status"]
+description = """
+Check overall Gas Town status.
+
+```bash
+gt status
+```
+
+Review:
+- All rigs in the town
+- Active polecats per rig
+- Witness/Refinery health per rig
+- Any alerts or anomalies
+
+Also check rig list:
+```bash
+gt rigs
+```
+
+Track for dashboard:
+- Rig count
+- Active worker count (polecats)
+- Any unhealthy rigs
+- Deacon status (if visible)
+"""
+
+[[steps]]
+id = "report-status"
+title = "Present dashboard to El Presidente"
+needs = ["rig-status"]
+description = """
+Compile and present your startup findings as a concise dashboard.
+
+**Dashboard sections:**
+
+1. **Hook Status**: Work hooked? (should be empty if you're here)
+
+2. **Mail Summary**:
+   - Unread count by type (HANDOFF, Escalation, HELP, etc.)
+   - Any urgent messages
+
+3. **Grease Epic** (Gas Town infrastructure):
+   - hq-rib status
+   - Open grease issues count
+   - Any blockers
+
+4. **Active Convoys**:
+   - Count and names
+   - Progress summary (X/Y complete)
+   - Any stuck convoys
+
+5. **Rig Health**:
+   - Rig count
+   - Active polecats per rig
+   - Witness/Refinery status
+   - Any alerts
+
+6. **Next Steps**:
+   - Recommended priorities based on discoveries
+   - What needs Mayor attention
+
+**Format**: Keep it concise. Use tables or bullet lists. El Presidente
+should be able to scan in 30 seconds and understand Gas Town's state.
+
+After presenting dashboard, continue to await-orders.
+"""
+
+[[steps]]
+id = "await-orders"
+title = "Wait for user direction"
+needs = ["report-status"]
+description = """
+Mayor is human-managed. Wait for El Presidente to provide direction.
+
+You've completed startup discovery and presented the dashboard.
+Now wait for instructions on:
+- Which issues to prioritize
+- Work dispatch decisions
+- Strategic direction
+- Any urgent interventions
+
+**You are NOT autonomous like Witness/Refinery.**
+Do not create new patrol wisps or loop. Wait for the human to direct your work.
+
+Possible next directions:
+- Process specific mail messages
+- Dispatch work to rigs (gt sling)
+- Coordinate convoy work
+- Handle escalations
+- Strategic planning for grease epic
+
+**This is the final step in the startup molecule.**
+"""
