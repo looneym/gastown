@@ -1175,11 +1175,13 @@ func updateAgentHookBead(agentID, beadID, workDir, townBeadsDir string) {
 	// Run from workDir WITHOUT BEADS_DIR to enable redirect-based routing.
 	// Set hook_bead to the slung work (gt-zecmc: removed agent_state update).
 	// Agent liveness is observable from tmux - no need to record it in bead.
-	// For cross-database scenarios, slot set may fail gracefully (warning only).
+	// For cross-database scenarios, slot set may fail gracefully (silent ignore).
+	// Tolerance: If agent bead doesn't exist (e.g., after bd rename-prefix), suppress error.
+	// Agent beads are created lazily on first spawn - missing bead is expected behavior.
 	bd := beads.New(bdWorkDir)
 	if err := bd.SetHookBead(agentBeadID, beadID); err != nil {
-		// Log warning instead of silent ignore - helps debug cross-beads issues
-		fmt.Fprintf(os.Stderr, "Warning: couldn't set agent %s hook: %v\n", agentBeadID, err)
+		// Silently ignore - agent bead may not exist yet (lazy creation model)
+		// Work is still correctly attached via bd update <bead> --assignee=<agent>
 		return
 	}
 }

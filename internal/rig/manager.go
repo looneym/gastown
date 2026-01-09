@@ -484,12 +484,9 @@ Use crew for your own workspace. Polecats are for batch work dispatch.
 	}
 	fmt.Printf("   ✓ Initialized beads (prefix: %s)\n", opts.BeadsPrefix)
 
-	// Create rig-level agent beads (witness, refinery) in rig beads.
-	// Town-level agents (mayor, deacon) are created by gt install in town beads.
-	if err := m.initAgentBeads(rigPath, opts.Name, opts.BeadsPrefix); err != nil {
-		// Non-fatal: log warning but continue
-		fmt.Fprintf(os.Stderr, "  Warning: Could not create agent beads: %v\n", err)
-	}
+	// Agent beads are now created lazily on first spawn (gt-gk2v).
+	// This avoids stale agent bead IDs after prefix renames.
+	// Previously, we called initAgentBeads here to create witness/refinery beads upfront.
 
 	// Seed patrol molecules for this rig
 	if err := m.seedPatrolMolecules(rigPath); err != nil {
