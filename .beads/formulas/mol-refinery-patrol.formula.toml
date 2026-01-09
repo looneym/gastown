@@ -296,6 +296,28 @@ gt mail archive <merge-ready-message-id>
 ```
 The message ID was tracked when you processed inbox-check.
 
+**Step 4.5: Rebuild binary (if configured)**
+
+Check rig config for post_merge_rebuild setting:
+```bash
+# Read config.json to check if post_merge_rebuild is enabled
+cat config.json | grep -A 2 post_merge_rebuild
+```
+
+If `post_merge_rebuild: true`, run the rebuild command from config:
+```bash
+# Extract and run the rebuild_command from config
+go install ./cmd/gt  # Or whatever rebuild_command is configured
+```
+
+⚠️ **VERIFICATION**: After rebuild, verify binary was updated:
+```bash
+ls -lh ~/go/bin/gt  # Check timestamp
+gt version          # Should show latest commit
+```
+
+If rebuild fails, log the error but continue (non-fatal - doesn't block merge completion).
+
 **Step 5: Cleanup (only after Steps 2-4 confirmed)**
 ```bash
 git branch -d temp
