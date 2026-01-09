@@ -125,11 +125,10 @@ func runFeed(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Build bd activity command (without argv[0] for buildFeedCommand)
-	bdArgs := buildFeedArgs()
-
 	// Handle --window mode: open in dedicated tmux window
 	if feedWindow {
+		// Build args with follow for window mode
+		bdArgs := buildFeedArgs(true)
 		return runFeedInWindow(workDir, bdArgs)
 	}
 
@@ -140,16 +139,18 @@ func runFeed(cmd *cobra.Command, args []string) error {
 		return runFeedTUI(workDir)
 	}
 
-	// Plain mode: exec bd activity directly
+	// Plain mode: exec bd activity directly (one-shot, no follow)
+	bdArgs := buildFeedArgs(false)
 	return runFeedDirect(workDir, bdArgs)
 }
 
 // buildFeedArgs builds the bd activity arguments based on flags.
-func buildFeedArgs() []string {
+// defaultFollow indicates whether to use follow mode by default (for window/TUI mode).
+func buildFeedArgs(defaultFollow bool) []string {
 	var args []string
 
-	// Default to follow mode unless --no-follow set
-	shouldFollow := !feedNoFollow
+	// Determine if we should follow
+	shouldFollow := defaultFollow && !feedNoFollow
 	if feedFollow {
 		shouldFollow = true
 	}
@@ -205,12 +206,13 @@ func runFeedTUI(workDir string) error {
 
 	var sources []feed.EventSource
 
-	// Create event source from bd activity
+	// Create event source from bd activity (optional - don't fail if not available)
 	bdSource, err := feed.NewBdActivitySource(workDir)
-	if err != nil {
-		return fmt.Errorf("creating bd activity source: %w", err)
+	if err == nil {
+		sources = append(sources, bdSource)
+	} else {
+		fmt.Fprintf(os.Stderr, "Warning: bd activity source unavailable: %v\n", err)
 	}
-	sources = append(sources, bdSource)
 
 	// Create MQ event source (optional - don't fail if not available)
 	mqSource, err := feed.NewMQEventSourceFromWorkDir(workDir)
@@ -222,6 +224,11 @@ func runFeedTUI(workDir string) error {
 	gtSource, err := feed.NewGtEventsSource(townRoot)
 	if err == nil {
 		sources = append(sources, gtSource)
+	}
+
+	// Error if no sources available
+	if len(sources) == 0 {
+		return fmt.Errorf("no event sources available (bd activity, MQ events, and GT events all failed)")
 	}
 
 	// Combine all sources

@@ -54,10 +54,21 @@ func NewBdActivitySource(workDir string) (*BdActivitySource, error) {
 		workDir: workDir,
 	}
 
+	// Channel to signal first output received
+	firstOutput := make(chan struct{})
+	firstOutputReceived := false
+
 	go func() {
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
 			line := scanner.Text()
+
+			// Signal first output
+			if !firstOutputReceived {
+				close(firstOutput)
+				firstOutputReceived = true
+			}
+
 			if event := parseBdActivityLine(line); event != nil {
 				select {
 				case source.events <- *event:
@@ -69,7 +80,20 @@ func NewBdActivitySource(workDir string) (*BdActivitySource, error) {
 		close(source.events)
 	}()
 
-	return source, nil
+	// Wait up to 5 seconds for first output to ensure subprocess isn't hung
+	timeout := time.NewTimer(5 * time.Second)
+	defer timeout.Stop()
+
+	select {
+	case <-firstOutput:
+		// Got output, subprocess is working
+		return source, nil
+	case <-timeout.C:
+		// No output in 5 seconds, assume hung
+		cancel()
+		_ = cmd.Wait()
+		return nil, fmt.Errorf("bd activity subprocess timed out (no output in 5s)")
+	}
 }
 
 // Events returns the event channel
