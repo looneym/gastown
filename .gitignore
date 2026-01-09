@@ -35,9 +35,15 @@ state.json
 
 # Beads runtime state (not tracked)
 # Formulas ARE tracked for `go install @latest` - see bottom of file
+# Un-ignore beads sync files (overrides global gitignore)
+!.beads/
+!.beads/issues.jsonl
+!.beads/interactions.jsonl
+!.beads/formulas/
+
+# But keep ignoring runtime state
+.beads/*.db
 .beads/redirect
-.beads/issues.jsonl
-.beads/interactions.jsonl
 .beads/metadata.json
 .beads/mq/
 .beads/last-touched
