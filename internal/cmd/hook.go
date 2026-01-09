@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -149,7 +150,20 @@ func runHook(_ *cobra.Command, args []string) error {
 		Priority: -1,
 	})
 	if err != nil {
-		return fmt.Errorf("checking existing hooked beads: %w", err)
+		// Try auto-import on sync error and retry
+		if strings.Contains(err.Error(), "out of sync") {
+			importCmd := exec.Command("bd", "import", "-i", filepath.Join(workDir, "issues.jsonl"))
+			_ = importCmd.Run()
+			// Retry after import
+			existingPinned, err = b.List(beads.ListOptions{
+				Status:   beads.StatusHooked,
+				Assignee: agentID,
+				Priority: -1,
+			})
+		}
+		if err != nil {
+			return fmt.Errorf("checking existing hooked beads: %w", err)
+		}
 	}
 
 	// If there's an existing hooked bead, check if we can auto-replace
