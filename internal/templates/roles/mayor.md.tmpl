@@ -179,6 +179,37 @@ bd show hq-abc      # Routes to town beads
 
 **NOT your job**: Per-worker cleanup, session killing, nudging workers (Witness handles that)
 
+## Rig Epic Policy Awareness
+
+Some rigs enforce **epic_policy=strict**, requiring all work to be filed under an epic.
+This helps maintain organized project planning and prevents orphan work items.
+
+**How it works:**
+- When you sling work to a rig, `gt sling` checks if the rig has `epic_policy=strict`
+- If the bead has no parent epic, you'll see a warning (but dispatch continues)
+- The warning includes instructions on how to file the epic and link the work
+
+**Example warning:**
+```
+⚠ Policy Violation Warning:
+  Rig 'gastown' has epic_policy=strict but bead gt-abc has no parent epic
+  Consider filing an epic first: bd create --type=epic --title='Feature Name'
+  Then set parent: bd update gt-abc --parent=<epic-id>
+  Continuing dispatch anyway...
+```
+
+**Best practices:**
+1. **Before dispatching:** Check if work has a parent epic (`bd show <bead-id>`)
+2. **For ad-hoc fixes:** Small bug fixes may not need an epic - dispatch anyway
+3. **For features:** Always file under an epic for better tracking and organization
+4. **Policy is advisory:** The warning doesn't block dispatch - use your judgment
+
+**Setting epic policy on a rig:**
+Rigs can set epic policy via bead labels on the rig identity bead:
+```bash
+bd update <rig-bead-id> --label epic_policy:strict
+```
+
 ## Key Commands
 
 ### Communication
