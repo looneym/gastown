@@ -555,6 +555,49 @@ func (m *Manager) getMergeConfig() MergeConfig {
 	return mergeConfig
 }
 
+// CanMergeToMain checks if direct merges to main/master are allowed.
+// Returns an error if merges are blocked by policy or configuration.
+//
+// Safety priority order:
+//  1. Policy beads (no-merge label) → BLOCK regardless of config
+//  2. Config allow_direct_main_merge: false → BLOCK
+//  3. Config allow_direct_main_merge: true → ALLOW (explicit opt-in)
+//  4. Config missing/nil → BLOCK (fail-safe default)
+//
+// This implements fail-safe behavior: merges are blocked unless explicitly allowed.
+func (m *Manager) CanMergeToMain() error {
+	// 1. Check for no-merge policy beads (highest priority)
+	// TODO: When policy bead system is implemented, check here first
+	// For now, skip to config check
+
+	// 2. Load rig settings to check merge_queue config
+	settingsPath := filepath.Join(m.rig.Path, "settings", "config.json")
+	settings, err := config.LoadRigSettings(settingsPath)
+	if err != nil {
+		// Can't load settings - fail safe by blocking
+		return fmt.Errorf("cannot verify merge permissions: settings unavailable: %w", err)
+	}
+
+	// 3. Check AllowDirectMainMerge setting
+	if settings.MergeQueue == nil {
+		// No merge_queue config - fail safe by blocking
+		return errors.New("direct merge to main blocked: merge_queue config missing (fail-safe default)")
+	}
+
+	if settings.MergeQueue.AllowDirectMainMerge == nil {
+		// Field not set - fail safe by blocking
+		return errors.New("direct merge to main blocked: allow_direct_main_merge not configured (fail-safe default)")
+	}
+
+	if !*settings.MergeQueue.AllowDirectMainMerge {
+		// Explicitly set to false
+		return errors.New("direct merge to main blocked: allow_direct_main_merge=false")
+	}
+
+	// Explicitly allowed - permit merge
+	return nil
+}
+
 // pushWithRetry pushes to the target branch with exponential backoff retry.
 // Deprecated: The Refinery agent decides retry strategy (ZFC #5).
 func (m *Manager) pushWithRetry(targetBranch string, config MergeConfig) error {
