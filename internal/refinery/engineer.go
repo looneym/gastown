@@ -46,6 +46,12 @@ type MergeQueueConfig struct {
 	// TestCommand is the command to run for testing.
 	TestCommand string `json:"test_command"`
 
+	// PostMergeRebuild controls whether to rebuild after merge.
+	PostMergeRebuild bool `json:"post_merge_rebuild"`
+
+	// RebuildCommand is the command to run for rebuilding.
+	RebuildCommand string `json:"rebuild_command"`
+
 	// DeleteMergedBranches controls whether to delete branches after merge.
 	DeleteMergedBranches bool `json:"delete_merged_branches"`
 
@@ -69,6 +75,8 @@ func DefaultMergeQueueConfig() *MergeQueueConfig {
 		OnConflict:           "assign_back",
 		RunTests:             true,
 		TestCommand:          "",
+		PostMergeRebuild:     false,
+		RebuildCommand:       "",
 		DeleteMergedBranches: true,
 		RetryFlakyTests:      1,
 		PollInterval:         30 * time.Second,
@@ -150,9 +158,12 @@ func (e *Engineer) LoadConfig() error {
 		Enabled              *bool   `json:"enabled"`
 		TargetBranch         *string `json:"target_branch"`
 		IntegrationBranches  *bool   `json:"integration_branches"`
+		AllowDirectMainMerge *bool   `json:"allow_direct_main_merge"`
 		OnConflict           *string `json:"on_conflict"`
 		RunTests             *bool   `json:"run_tests"`
 		TestCommand          *string `json:"test_command"`
+		PostMergeRebuild     *bool   `json:"post_merge_rebuild"`
+		RebuildCommand       *string `json:"rebuild_command"`
 		DeleteMergedBranches *bool   `json:"delete_merged_branches"`
 		RetryFlakyTests      *int    `json:"retry_flaky_tests"`
 		PollInterval         *string `json:"poll_interval"`
@@ -173,6 +184,9 @@ func (e *Engineer) LoadConfig() error {
 	if mqRaw.IntegrationBranches != nil {
 		e.config.IntegrationBranches = *mqRaw.IntegrationBranches
 	}
+	if mqRaw.AllowDirectMainMerge != nil {
+		e.config.AllowDirectMainMerge = *mqRaw.AllowDirectMainMerge
+	}
 	if mqRaw.OnConflict != nil {
 		e.config.OnConflict = *mqRaw.OnConflict
 	}
@@ -181,6 +195,12 @@ func (e *Engineer) LoadConfig() error {
 	}
 	if mqRaw.TestCommand != nil {
 		e.config.TestCommand = *mqRaw.TestCommand
+	}
+	if mqRaw.PostMergeRebuild != nil {
+		e.config.PostMergeRebuild = *mqRaw.PostMergeRebuild
+	}
+	if mqRaw.RebuildCommand != nil {
+		e.config.RebuildCommand = *mqRaw.RebuildCommand
 	}
 	if mqRaw.DeleteMergedBranches != nil {
 		e.config.DeleteMergedBranches = *mqRaw.DeleteMergedBranches
@@ -589,6 +609,21 @@ func (e *Engineer) handleSuccessFromQueue(mr *mrqueue.MR, result ProcessResult) 
 	// 3. Remove MR from queue (ephemeral - just delete the file)
 	if err := e.mrQueue.Remove(mr.ID); err != nil {
 		_, _ = fmt.Fprintf(e.output, "[Engineer] Warning: failed to remove MR from queue: %v\n", err)
+	}
+
+	// 3.5. Rebuild binary if configured
+	if e.config.PostMergeRebuild && e.config.RebuildCommand != "" {
+		_, _ = fmt.Fprintf(e.output, "[Engineer] 🔨 Rebuilding binary: %s\n", e.config.RebuildCommand)
+
+		cmd := exec.Command("sh", "-c", e.config.RebuildCommand)
+		cmd.Dir = e.workDir
+		output, err := cmd.CombinedOutput()
+
+		if err != nil {
+			_, _ = fmt.Fprintf(e.output, "[Engineer] ⚠️  Rebuild failed: %v\n%s\n", err, output)
+		} else {
+			_, _ = fmt.Fprintf(e.output, "[Engineer] ✓ Binary rebuilt successfully\n")
+		}
 	}
 
 	// 4. Log success
