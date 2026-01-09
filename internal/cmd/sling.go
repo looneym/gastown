@@ -226,7 +226,8 @@ func runSling(cmd *cobra.Command, args []string) error {
 	// Determine target agent (self or specified)
 	var targetAgent string
 	var targetPane string
-	var hookWorkDir string // Working directory for running bd hook commands
+	var hookWorkDir string           // Working directory for running bd hook commands
+	var needsMolecule bool = false // True if we spawned a polecat (need to pour molecule)
 
 	if len(args) > 1 {
 		target := args[1]
@@ -273,12 +274,12 @@ func runSling(cmd *cobra.Command, args []string) error {
 				// Spawn a fresh polecat in the rig
 				fmt.Printf("Target is rig '%s', spawning fresh polecat...\n", rigName)
 				spawnOpts := SlingSpawnOptions{
-					Force:    slingForce,
-					Naked:    slingNaked,
-					Account:  slingAccount,
-					Create:   slingCreate,
-					HookBead: beadID, // Set atomically at spawn time
-					Agent:    slingAgent,
+					Force:   slingForce,
+					Naked:   slingNaked,
+					Account: slingAccount,
+					Create:  slingCreate,
+					// HookBead removed - we'll pour and hook molecule instead
+					Agent: slingAgent,
 				}
 				spawnInfo, spawnErr := SpawnPolecatForSling(rigName, spawnOpts)
 				if spawnErr != nil {
@@ -287,6 +288,7 @@ func runSling(cmd *cobra.Command, args []string) error {
 				targetAgent = spawnInfo.AgentID()
 				targetPane = spawnInfo.Pane
 				hookWorkDir = spawnInfo.ClonePath // Run bd commands from polecat's worktree
+				needsMolecule = true              // We spawned a polecat, so pour molecule before hooking
 
 				// Wake witness and refinery to monitor the new polecat
 				wakeRigAgents(rigName)
@@ -447,7 +449,20 @@ func runSling(cmd *cobra.Command, args []string) error {
 		beadID = wispRootID
 	}
 
-	// Hook the bead using bd update.
+	// Pour mol-polecat-work molecule if we spawned a polecat
+	// This provides structured workflow steps for the polecat to follow
+	if needsMolecule {
+		fmt.Printf("  Pouring mol-polecat-work molecule...\n")
+		moleculeID, pourErr := pourPolecatWorkMolecule(beadID, hookWorkDir, townRoot)
+		if pourErr != nil {
+			return fmt.Errorf("pouring polecat work molecule: %w", pourErr)
+		}
+		fmt.Printf("%s Molecule created: %s\n", style.Bold.Render("✓"), moleculeID)
+		// Hook the molecule instead of the original work bead
+		beadID = moleculeID
+	}
+
+	// Hook the bead (or molecule) using bd update.
 	// See: https://github.com/steveyegge/gastown/issues/148
 	hookCmd := exec.Command("bd", "--no-daemon", "update", beadID, "--status=hooked", "--assignee="+targetAgent)
 	hookCmd.Dir = beads.ResolveHookDir(townRoot, beadID, hookWorkDir)
@@ -1413,6 +1428,9 @@ func runBatchSling(beadIDs []string, rigName string, townBeadsDir string) error 
 
 	fmt.Printf("%s Batch slinging %d beads to rig '%s'...\n", style.Bold.Render("🎯"), len(beadIDs), rigName)
 
+	// Derive townRoot from townBeadsDir (needed for molecule pouring)
+	townRoot := filepath.Dir(townBeadsDir)
+
 	// Track results for summary
 	type slingResult struct {
 		beadID  string
@@ -1442,12 +1460,12 @@ func runBatchSling(beadIDs []string, rigName string, townBeadsDir string) error 
 
 		// Spawn a fresh polecat
 		spawnOpts := SlingSpawnOptions{
-			Force:    slingForce,
-			Naked:    slingNaked,
-			Account:  slingAccount,
-			Create:   slingCreate,
-			HookBead: beadID, // Set atomically at spawn time
-			Agent:    slingAgent,
+			Force:   slingForce,
+			Naked:   slingNaked,
+			Account: slingAccount,
+			Create:  slingCreate,
+			// HookBead removed - we'll pour and hook molecule instead
+			Agent: slingAgent,
 		}
 		spawnInfo, err := SpawnPolecatForSling(rigName, spawnOpts)
 		if err != nil {
@@ -1459,7 +1477,17 @@ func runBatchSling(beadIDs []string, rigName string, townBeadsDir string) error 
 		targetAgent := spawnInfo.AgentID()
 		hookWorkDir := spawnInfo.ClonePath
 
-		// Auto-convoy: check if issue is already tracked
+		// Pour mol-polecat-work molecule with work bead as issue variable
+		fmt.Printf("  Pouring mol-polecat-work molecule...\n")
+		moleculeID, pourErr := pourPolecatWorkMolecule(beadID, hookWorkDir, townRoot)
+		if pourErr != nil {
+			results = append(results, slingResult{beadID: beadID, polecat: spawnInfo.PolecatName, success: false, errMsg: "molecule pour failed"})
+			fmt.Printf("  %s Failed to pour molecule: %v\n", style.Dim.Render("✗"), pourErr)
+			continue
+		}
+		fmt.Printf("  %s Molecule created: %s\n", style.Bold.Render("✓"), moleculeID)
+
+		// Auto-convoy: check if issue is already tracked (use original work bead)
 		if !slingNoConvoy {
 			existingConvoy := isTrackedByConvoy(beadID)
 			if existingConvoy == "" {
@@ -1474,10 +1502,9 @@ func runBatchSling(beadIDs []string, rigName string, townBeadsDir string) error 
 			}
 		}
 
-		// Hook the bead. See: https://github.com/steveyegge/gastown/issues/148
-		townRoot := filepath.Dir(townBeadsDir)
-		hookCmd := exec.Command("bd", "--no-daemon", "update", beadID, "--status=hooked", "--assignee="+targetAgent)
-		hookCmd.Dir = beads.ResolveHookDir(townRoot, beadID, hookWorkDir)
+		// Hook the molecule (not the original work bead). See: https://github.com/steveyegge/gastown/issues/148
+		hookCmd := exec.Command("bd", "--no-daemon", "update", moleculeID, "--status=hooked", "--assignee="+targetAgent)
+		hookCmd.Dir = beads.ResolveHookDir(townRoot, moleculeID, hookWorkDir)
 		hookCmd.Stderr = os.Stderr
 		if err := hookCmd.Run(); err != nil {
 			results = append(results, slingResult{beadID: beadID, polecat: spawnInfo.PolecatName, success: false, errMsg: "hook failed"})
@@ -1487,23 +1514,23 @@ func runBatchSling(beadIDs []string, rigName string, townBeadsDir string) error 
 
 		fmt.Printf("  %s Work attached to %s\n", style.Bold.Render("✓"), spawnInfo.PolecatName)
 
-		// Log sling event
+		// Log sling event (log molecule, not original bead)
 		actor := detectActor()
-		_ = events.LogFeed(events.TypeSling, actor, events.SlingPayload(beadID, targetAgent))
+		_ = events.LogFeed(events.TypeSling, actor, events.SlingPayload(moleculeID, targetAgent))
 
-		// Update agent bead state
-		updateAgentHookBead(targetAgent, beadID, hookWorkDir, townBeadsDir)
+		// Update agent bead state (hook points to molecule)
+		updateAgentHookBead(targetAgent, moleculeID, hookWorkDir, townBeadsDir)
 
-		// Store args if provided
+		// Store args if provided (store in molecule)
 		if slingArgs != "" {
-			if err := storeArgsInBead(beadID, slingArgs); err != nil {
+			if err := storeArgsInBead(moleculeID, slingArgs); err != nil {
 				fmt.Printf("  %s Could not store args: %v\n", style.Dim.Render("Warning:"), err)
 			}
 		}
 
-		// Nudge the polecat
+		// Nudge the polecat (reference molecule)
 		if spawnInfo.Pane != "" {
-			if err := injectStartPrompt(spawnInfo.Pane, beadID, slingSubject, slingArgs); err != nil {
+			if err := injectStartPrompt(spawnInfo.Pane, moleculeID, slingSubject, slingArgs); err != nil {
 				fmt.Printf("  %s Could not nudge (agent will discover via gt prime)\n", style.Dim.Render("○"))
 			} else {
 				fmt.Printf("  %s Start prompt sent\n", style.Bold.Render("▶"))
@@ -1555,4 +1582,42 @@ func formatTrackBeadID(beadID string) string {
 	}
 	// Fallback for malformed IDs (single segment)
 	return beadID
+}
+
+// pourPolecatWorkMolecule pours mol-polecat-work molecule with the work bead as issue variable.
+// This creates a structured workflow for the polecat to follow.
+// Returns the molecule ID (wisp root) that should be hooked instead of the bare work bead.
+func pourPolecatWorkMolecule(workBeadID, workDir, townRoot string) (string, error) {
+	formulaName := "mol-polecat-work"
+
+	// Determine working directory for bd commands
+	// Route bd mutations (cook/wisp) to the correct beads context for the work bead.
+	formulaWorkDir := beads.ResolveHookDir(townRoot, workBeadID, workDir)
+
+	// Step 1: Cook the formula (ensures proto exists)
+	cookCmd := exec.Command("bd", "--no-daemon", "cook", formulaName)
+	cookCmd.Dir = formulaWorkDir
+	cookCmd.Stderr = os.Stderr
+	if err := cookCmd.Run(); err != nil {
+		return "", fmt.Errorf("cooking formula %s: %w", formulaName, err)
+	}
+
+	// Step 2: Create wisp with issue variable
+	issueVar := fmt.Sprintf("issue=%s", workBeadID)
+	wispArgs := []string{"--no-daemon", "mol", "wisp", formulaName, "--var", issueVar, "--json"}
+	wispCmd := exec.Command("bd", wispArgs...)
+	wispCmd.Dir = formulaWorkDir
+	wispCmd.Stderr = os.Stderr
+	wispOut, err := wispCmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("creating wisp for formula %s: %w", formulaName, err)
+	}
+
+	// Parse wisp output to get the root ID (molecule ID)
+	moleculeID, err := parseWispIDFromJSON(wispOut)
+	if err != nil {
+		return "", fmt.Errorf("parsing wisp output: %w", err)
+	}
+
+	return moleculeID, nil
 }
