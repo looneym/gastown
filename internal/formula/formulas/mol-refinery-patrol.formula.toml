@@ -248,7 +248,13 @@ Merge to main and push. CRITICAL: Notifications come IMMEDIATELY after push.
 ```bash
 git checkout main
 git merge --ff-only temp
-git push origin main
+
+# Check if local_only mode is enabled
+if ! jq -r '.refinery.local_only // false' ~/gt/gastown/config.json | grep -q true; then
+  git push origin main
+else
+  echo "ℹ️  Local-only mode: skipping push to origin"
+fi
 ```
 
 ⚠️ **STOP HERE - DO NOT PROCEED UNTIL STEPS 2-3 COMPLETE**
@@ -299,7 +305,13 @@ The message ID was tracked when you processed inbox-check.
 **Step 5: Cleanup (only after Steps 2-4 confirmed)**
 ```bash
 git branch -d temp
-git push origin --delete <polecat-branch>
+
+# Delete remote branch only if not in local_only mode
+if ! jq -r '.refinery.local_only // false' ~/gt/gastown/config.json | grep -q true; then
+  git push origin --delete <polecat-branch>
+else
+  echo "ℹ️  Local-only mode: skipping remote branch deletion"
+fi
 ```
 
 **VERIFICATION GATE**: You CANNOT proceed to loop-check without:
