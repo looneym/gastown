@@ -33,6 +33,10 @@ type MergeQueueConfig struct {
 	// IntegrationBranches enables per-epic integration branches.
 	IntegrationBranches bool `json:"integration_branches"`
 
+	// AllowDirectMainMerge controls whether MRs can target main/master directly.
+	// When false (default), MRs must target integration branches.
+	AllowDirectMainMerge bool `json:"allow_direct_main_merge"`
+
 	// OnConflict is the strategy for handling conflicts: "assign_back" or "auto_rebase".
 	OnConflict string `json:"on_conflict"`
 
@@ -61,6 +65,7 @@ func DefaultMergeQueueConfig() *MergeQueueConfig {
 		Enabled:              true,
 		TargetBranch:         "main",
 		IntegrationBranches:  true,
+		AllowDirectMainMerge: false,
 		OnConflict:           "assign_back",
 		RunTests:             true,
 		TestCommand:          "",
@@ -234,6 +239,14 @@ func (e *Engineer) ProcessMR(ctx context.Context, mr *beads.Issue) ProcessResult
 // doMerge performs the actual git merge operation.
 // This is the core merge logic shared by ProcessMR and ProcessMRFromQueue.
 func (e *Engineer) doMerge(ctx context.Context, branch, target, sourceIssue string) ProcessResult {
+	// Step 0: Validate target branch against blacklist
+	if err := e.validateTargetBranch(target); err != nil {
+		return ProcessResult{
+			Success: false,
+			Error:   err.Error(),
+		}
+	}
+
 	// Step 1: Verify source branch exists locally (shared .repo.git with polecats)
 	_, _ = fmt.Fprintf(e.output, "[Engineer] Checking local branch %s...\n", branch)
 	exists, err := e.git.BranchExists(branch)
@@ -341,6 +354,25 @@ func (e *Engineer) doMerge(ctx context.Context, branch, target, sourceIssue stri
 		Success:     true,
 		MergeCommit: mergeCommit,
 	}
+}
+
+// validateTargetBranch validates the target branch against the blacklist.
+// Returns an error if the target is main/master and AllowDirectMainMerge is false.
+func (e *Engineer) validateTargetBranch(target string) error {
+	// Check if target is main or master
+	isMainBranch := target == "main" || target == "master"
+
+	// If targeting main/master and it's not allowed, return error
+	if isMainBranch && !e.config.AllowDirectMainMerge {
+		return fmt.Errorf(
+			"direct merges to %s are blocked by policy. "+
+				"Please assign this work to an epic and merge to integration/<epic-id> instead. "+
+				"Or set allow_direct_main_merge: true in rig config if needed",
+			target,
+		)
+	}
+
+	return nil
 }
 
 // runTests runs the configured test command and returns the result.

@@ -259,6 +259,51 @@ merge queue. Without this step:
 
 **Local branch → `gt done` → MR in queue → Refinery merges → LANDED**
 
+### Integration Branches and Epic Workflows
+
+**Automatic Target Selection**: When you run `gt done`, the system automatically
+determines which branch your work should merge to:
+
+| Scenario | Target Branch | What Happens |
+|----------|---------------|--------------|
+| Your issue has a parent epic | `integration/<epic-id>` | Work merges to epic's integration branch |
+| Your issue is standalone | `main` or `master` | May be blocked by policy (see below) |
+
+**Example: Epic-Based Work**
+```
+You're working on: gt-abc (JWT implementation)
+Parent epic: gt-auth (authentication overhaul)
+
+When you run `gt done`:
+→ MR automatically targets integration/gt-auth
+→ Refinery merges to integration/gt-auth (not main)
+→ Later, all epic work lands to main as one atomic merge
+```
+
+**Why Integration Branches?**
+- Allows incremental progress on multi-task features
+- Keeps main stable while epic work is in flight
+- Delivers complete features atomically
+
+**Main/Master Merge Policy**
+
+Gas Town enforces epic-based organization by default:
+- Direct merges to `main`/`master` are **blocked** unless your issue has an epic
+- This prevents fragmented feature delivery
+
+**If Your MR is Blocked:**
+```
+Error: Direct merges to main are blocked by policy.
+Please assign this work to an epic and merge to integration/<epic-id> instead.
+```
+
+**What To Do:**
+1. Ask the Mayor or Witness to assign your issue to an epic
+2. Wait for integration branch creation: `gt mq integration create <epic-id>`
+3. Re-run `gt done` - it will now target the integration branch
+
+**Override**: Rig config can allow direct main merges with `allow_direct_main_merge: true`
+
 ## If You're Stuck
 
 1. **File an issue**: `bd create --title="Blocked: <reason>" --type=task`

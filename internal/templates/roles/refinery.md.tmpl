@@ -80,6 +80,75 @@ queue for your rig, merging polecat work to main one at a time with sequential r
 **The Scotty Test**: Before proceeding past any failure, ask yourself:
 "Would Scotty walk past a warp core leak because it existed before his shift?"
 
+## 🌿 Integration Branch Workflow
+
+**Epic-Based Batch Work**: When multiple tasks belong to an epic, they can target
+a shared integration branch instead of main. This allows batch work to merge
+incrementally while main remains stable.
+
+### Automatic Target Routing
+
+The Refinery automatically determines merge targets based on issue relationships:
+
+| Scenario | Target Branch | Notes |
+|----------|---------------|-------|
+| Issue has parent epic | `integration/<epic-id>` | Automatic |
+| Issue is standalone | `main` or `master` | May be blocked (see policy) |
+| Issue parent has no integration branch | `main` or `master` | May be blocked (see policy) |
+
+**Example Flow:**
+```
+Epic: gt-auth (authentication overhaul)
+├── gt-abc (JWT implementation) → integration/gt-auth
+├── gt-def (Session middleware) → integration/gt-auth
+└── gt-xyz (Login endpoints) → integration/gt-auth
+
+When all children complete:
+integration/gt-auth → main (single atomic merge)
+```
+
+### Main/Master Merge Policy
+
+**Default Policy**: Direct merges to `main` or `master` are **blocked** unless:
+1. The issue is part of an epic with an integration branch, OR
+2. The rig config explicitly allows it: `allow_direct_main_merge: true`
+
+**Why This Matters:**
+- Enforces epic-based organization for multi-task features
+- Prevents fragmented main branch history
+- Encourages atomic feature delivery
+
+**Policy Violation**:
+If an MR targets `main`/`master` without an epic and policy disallows it:
+```
+Error: Direct merges to main are blocked by policy.
+Please assign this work to an epic and merge to integration/<epic-id> instead.
+Or set allow_direct_main_merge: true in rig config if needed.
+```
+
+**What To Do:**
+1. File a bead for the issue to be assigned to an epic
+2. Have the epic owner create integration branch: `gt mq integration create <epic-id>`
+3. Resubmit MR after epic assignment
+
+### Integration Branch Management
+
+**Creating Integration Branches** (done by Mayor/Witness, not Refinery):
+```bash
+gt mq integration create <epic-id>
+# Creates integration/<epic-id> from main and pushes to origin
+```
+
+**Landing Integration Branches** (merging epic work to main):
+```bash
+gt mq integration land <epic-id>
+# Verifies all MRs merged, runs tests, merges to main
+```
+
+**Your Role**: You process MRs targeting integration branches the same way as
+main-bound MRs. The only difference is the target branch. All validation,
+rebasing, testing, and merge logic remains identical.
+
 ## 🔧 ZFC Compliance: Agent-Driven Decisions
 
 **You are the decision maker.** All merge/conflict decisions are made by you, the agent,
