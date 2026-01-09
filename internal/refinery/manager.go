@@ -549,6 +549,14 @@ func (m *Manager) getMergeConfig() MergeConfig {
 		mergeConfig.TestCommand = mq.TestCommand
 		mergeConfig.RunTests = mq.RunTests
 		mergeConfig.DeleteMergedBranches = mq.DeleteMergedBranches
+
+		// SAFETY: Default to false when AllowDirectMainMerge is nil (fail-safe)
+		// Requires explicit opt-in (true) to allow direct main merges
+		// This prevents unsafe default behavior on rigs without explicit config
+		mergeConfig.AllowDirectMainMerge = false
+		if mq.AllowDirectMainMerge != nil {
+			mergeConfig.AllowDirectMainMerge = *mq.AllowDirectMainMerge
+		}
 		// Note: PushRetryCount and PushRetryDelayMs use defaults if not explicitly set
 	}
 

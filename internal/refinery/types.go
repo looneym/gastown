@@ -132,6 +132,13 @@ type MergeConfig struct {
 	// Each retry doubles the delay (exponential backoff).
 	// Default: 1000
 	PushRetryDelayMs int `json:"push_retry_delay_ms"`
+
+	// AllowDirectMainMerge controls whether direct merges to main branch are allowed.
+	// CRITICAL SAFETY: Defaults to false (fail-safe). Requires explicit opt-in.
+	// When false, refinery must use PR workflow instead of direct merge.
+	// Policy beads (no-merge label) override this and always block merges.
+	// Default: false
+	AllowDirectMainMerge bool `json:"allow_direct_main_merge"`
 }
 
 // DefaultMergeConfig returns the default merge configuration.
@@ -142,6 +149,7 @@ func DefaultMergeConfig() MergeConfig {
 		DeleteMergedBranches: true,
 		PushRetryCount:       3,
 		PushRetryDelayMs:     1000,
+		AllowDirectMainMerge: false, // SAFETY: Fail-safe default, require explicit opt-in
 	}
 }
 
