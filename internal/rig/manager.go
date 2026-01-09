@@ -14,6 +14,7 @@ import (
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/claude"
 	"github.com/steveyegge/gastown/internal/config"
+	"github.com/steveyegge/gastown/internal/formula"
 	"github.com/steveyegge/gastown/internal/git"
 	"github.com/steveyegge/gastown/internal/templates"
 	"github.com/steveyegge/gastown/internal/workspace"
@@ -628,6 +629,20 @@ func (m *Manager) initBeads(rigPath, prefix string) error {
 	typesCmd.Dir = rigPath
 	typesCmd.Env = filteredEnv
 	_, _ = typesCmd.CombinedOutput()
+
+	// Provision embedded formulas to .beads/formulas/
+	// This is essential for molecule operations (mol-polecat-work, etc.)
+	// The formulas are embedded in the gt binary and copied here during rig creation.
+	// Note: We provision to rigPath (rig root) which resolves to the correct beads location:
+	// - If .beads/ exists at rig root, formulas go to <rigPath>/.beads/formulas/
+	// - If .beads/ redirects to mayor/rig, formulas go to <rigPath>/mayor/rig/.beads/formulas/
+	// The formula.ProvisionFormulas function handles both cases by using the rigPath parameter.
+	if count, err := formula.ProvisionFormulas(rigPath); err != nil {
+		// Log warning but don't fail - formulas are important but not critical for basic operation
+		fmt.Printf("   ⚠ Could not provision formulas: %v\n", err)
+	} else if count > 0 {
+		fmt.Printf("   ✓ Provisioned %d formulas\n", count)
+	}
 
 	return nil
 }
