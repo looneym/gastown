@@ -625,6 +625,12 @@ type MergeQueueConfig struct {
 
 	// MaxConcurrent is the maximum number of concurrent merges.
 	MaxConcurrent int `json:"max_concurrent"`
+
+	// AllowDirectMainMerge controls whether direct merges to main are permitted.
+	// When nil or false, refinery blocks direct merges (fail-safe default).
+	// Must be explicitly set to true to enable direct merges.
+	// This prevents accidental merges to protected branches.
+	AllowDirectMainMerge *bool `json:"allow_direct_main_merge,omitempty"`
 }
 
 // OnConflict strategy constants.
@@ -635,6 +641,7 @@ const (
 
 // DefaultMergeQueueConfig returns a MergeQueueConfig with sensible defaults.
 func DefaultMergeQueueConfig() *MergeQueueConfig {
+	allowDirectMerge := false // Fail-safe: require explicit opt-in
 	return &MergeQueueConfig{
 		Enabled:              true,
 		TargetBranch:         "main",
@@ -646,6 +653,7 @@ func DefaultMergeQueueConfig() *MergeQueueConfig {
 		RetryFlakyTests:      1,
 		PollInterval:         "30s",
 		MaxConcurrent:        1,
+		AllowDirectMainMerge: &allowDirectMerge,
 	}
 }
 
