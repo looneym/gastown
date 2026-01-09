@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -502,4 +503,151 @@ exit 0
 			t.Logf("gt sling returned error (may be expected in test): %v", err)
 		}
 	}
+}
+
+// TestPolecatWorkMoleculePouringInSling tests that when slinging to a rig,
+// the mol-polecat-work molecule is properly poured with the work bead as issue variable.
+// This verifies the integration between gt sling and the molecule system.
+func TestPolecatWorkMoleculePouringInSling(t *testing.T) {
+	townRoot := t.TempDir()
+
+	// Create minimal workspace structure
+	if err := os.MkdirAll(filepath.Join(townRoot, "mayor", "rig"), 0755); err != nil {
+		t.Fatalf("mkdir mayor/rig: %v", err)
+	}
+	gastownRig := filepath.Join(townRoot, "gastown", "mayor", "rig")
+	if err := os.MkdirAll(gastownRig, 0755); err != nil {
+		t.Fatalf("mkdir gastownRig: %v", err)
+	}
+
+	// Create routes.jsonl
+	if err := os.MkdirAll(filepath.Join(townRoot, ".beads"), 0755); err != nil {
+		t.Fatalf("mkdir .beads: %v", err)
+	}
+	routes := strings.Join([]string{
+		`{"prefix":"gt-","path":"gastown/mayor/rig"}`,
+		`{"prefix":"hq-","path":"."}`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(townRoot, ".beads", "routes.jsonl"), []byte(routes), 0644); err != nil {
+		t.Fatalf("write routes.jsonl: %v", err)
+	}
+
+	// Create a stub bd command that tracks cook/wisp calls
+	binDir := filepath.Join(townRoot, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("mkdir binDir: %v", err)
+	}
+	logPath := filepath.Join(townRoot, "bd.log")
+	bdPath := filepath.Join(binDir, "bd")
+	bdScript := `#!/bin/sh
+set -e
+echo "$(pwd)|$*" >> "${BD_LOG}"
+if [ "$1" = "--no-daemon" ]; then
+  shift
+fi
+cmd="$1"
+shift || true
+case "$cmd" in
+  show)
+    # Return a test bead
+    echo '[{"id":"gt-abc123","title":"Test work bead","status":"open","assignee":"","description":"Test work"}]'
+    ;;
+  cook)
+    # Record that cook was called with the formula name
+    echo "COOKED: $1" >&2
+    exit 0
+    ;;
+  mol)
+    sub="$1"
+    shift || true
+    case "$sub" in
+      wisp)
+        # Record the formula and variables
+        formula="$1"
+        shift || true
+        # Extract --var argument
+        while [ $# -gt 0 ]; do
+          if [ "$1" = "--var" ]; then
+            shift
+            echo "VAR: $1" >&2
+          fi
+          shift || true
+        done
+        # Return wisp JSON with a molecule ID
+        echo '{"new_epic_id":"gt-wisp-mol123","created":9,"phase":"vapor"}'
+        exit 0
+        ;;
+    esac
+    ;;
+  update)
+    # Record hook update
+    issue="$1"
+    shift || true
+    echo "HOOKED: $issue" >&2
+    exit 0
+    ;;
+esac
+exit 0
+`
+	if err := os.WriteFile(bdPath, []byte(bdScript), 0755); err != nil {
+		t.Fatalf("write bd stub: %v", err)
+	}
+
+	t.Setenv("BD_LOG", logPath)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	// Test the pourPolecatWorkMolecule function directly
+	workBeadID := "gt-abc123"
+	moleculeID, err := pourPolecatWorkMolecule(workBeadID, gastownRig, townRoot)
+	if err != nil {
+		t.Fatalf("pourPolecatWorkMolecule failed: %v", err)
+	}
+
+	// Verify molecule ID was returned
+	if moleculeID != "gt-wisp-mol123" {
+		t.Errorf("Expected molecule ID 'gt-wisp-mol123', got '%s'", moleculeID)
+	}
+
+	// Verify bd commands were called in correct order
+	logBytes, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read bd log: %v", err)
+	}
+	logLines := strings.Split(strings.TrimSpace(string(logBytes)), "\n")
+
+	gotCook := false
+	gotWisp := false
+	gotIssueVar := false
+
+	for _, line := range logLines {
+		parts := strings.SplitN(line, "|", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		args := parts[1]
+
+		if strings.Contains(args, " cook mol-polecat-work") {
+			gotCook = true
+		}
+		if strings.Contains(args, " mol wisp mol-polecat-work") {
+			gotWisp = true
+		}
+		// Check that issue variable was passed
+		if strings.Contains(args, fmt.Sprintf("issue=%s", workBeadID)) {
+			gotIssueVar = true
+		}
+	}
+
+	if !gotCook {
+		t.Errorf("Expected 'bd cook mol-polecat-work' to be called (log: %s)", string(logBytes))
+	}
+	if !gotWisp {
+		t.Errorf("Expected 'bd mol wisp mol-polecat-work' to be called (log: %s)", string(logBytes))
+	}
+	if !gotIssueVar {
+		t.Errorf("Expected issue variable 'issue=%s' to be passed to wisp (log: %s)", workBeadID, string(logBytes))
+	}
+
+	t.Logf("✓ Molecule pouring test passed: cook=%v wisp=%v issueVar=%v", gotCook, gotWisp, gotIssueVar)
 }
