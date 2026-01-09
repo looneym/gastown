@@ -1144,6 +1144,11 @@ func runSlingFormula(args []string) error {
 // For cross-database scenarios (agent in rig db, hook bead in town db),
 // the slot set may fail - this is handled gracefully with a warning.
 // The work is still correctly attached via `bd update <bead> --assignee=<agent>`.
+//
+// Agent beads are created lazily on first use (hq-gk2v). If the agent bead doesn't
+// exist yet (e.g., after prefix rename), the SetHookBead call will fail gracefully
+// with a warning. The agent can still work - the work assignment is tracked via
+// the work bead's assignee field, not just the agent bead's hook field.
 func updateAgentHookBead(agentID, beadID, workDir, townBeadsDir string) {
 	_ = townBeadsDir // Not used - BEADS_DIR breaks redirect mechanism
 
