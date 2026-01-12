@@ -130,7 +130,7 @@ func storeDispatcherInBead(beadID, dispatcher string) error {
 	}
 
 	// Get the bead to preserve existing description content
-	showCmd := exec.Command("bd", "show", beadID, "--json")
+	showCmd := exec.Command("bd", "--no-daemon", "show", beadID, "--json")
 	out, err := showCmd.Output()
 	if err != nil {
 		return fmt.Errorf("fetching bead: %w", err)
@@ -159,7 +159,7 @@ func storeDispatcherInBead(beadID, dispatcher string) error {
 	newDesc := beads.SetAttachmentFields(issue, fields)
 
 	// Update the bead
-	updateCmd := exec.Command("bd", "update", beadID, "--description="+newDesc)
+	updateCmd := exec.Command("bd", "--no-daemon", "update", beadID, "--description="+newDesc)
 	updateCmd.Stderr = os.Stderr
 	if err := updateCmd.Run(); err != nil {
 		return fmt.Errorf("updating bead description: %w", err)

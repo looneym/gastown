@@ -132,6 +132,12 @@ func (m *Manager) Start(agentOverride string) error {
 	time.Sleep(2 * time.Second)
 	_ = t.NudgeSession(sessionID, session.PropulsionNudgeForRole("mayor", mayorDir)) // Non-fatal
 
+	// Auto-pour mayor startup molecule for reliable coordination
+	time.Sleep(1 * time.Second) // Let propulsion nudge process
+	_ = t.SendKeys(sessionID, "bd mol wisp mol-mayor-startup")
+	time.Sleep(500 * time.Millisecond)
+	_ = t.SendKeys(sessionID, "ENTER")
+
 	return nil
 }
 

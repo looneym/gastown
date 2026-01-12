@@ -171,6 +171,122 @@ type AddRigOptions struct {
 	DefaultBranch string // Default branch (defaults to auto-detected from remote)
 }
 
+// loadExistingPrefixes loads all registered prefixes from town routes.jsonl
+func (m *Manager) loadExistingPrefixes() (map[string]string, error) {
+	beadsDir := filepath.Join(m.townRoot, ".beads")
+	routes, err := beads.LoadRoutes(beadsDir)
+	if err != nil {
+		return nil, err
+	}
+
+	prefixes := make(map[string]string)
+	for _, route := range routes {
+		// Store prefix -> path mapping for collision reporting
+		prefixes[route.Prefix] = route.Path
+	}
+	return prefixes, nil
+}
+
+// isPrefixTaken checks if a prefix is already in use
+func (m *Manager) isPrefixTaken(prefix string, existingPrefixes map[string]string) bool {
+	_, taken := existingPrefixes[prefix]
+	return taken
+}
+
+// promptForPrefix interactively prompts user to resolve a prefix collision
+func (m *Manager) promptForPrefix(rigName, suggestedPrefix string, existingPrefixes map[string]string) (string, error) {
+	// Find what's using the conflicting prefix
+	conflictingRig := existingPrefixes[suggestedPrefix]
+
+	fmt.Printf("\n⚠️  Prefix collision detected!\n")
+	fmt.Printf("   Prefix '%s' is already in use by: %s\n", suggestedPrefix, conflictingRig)
+	fmt.Printf("   New rig: %s\n\n", rigName)
+
+	// Generate alternative suggestions
+	alternatives := m.generateAlternativePrefixes(rigName, existingPrefixes)
+	fmt.Printf("  Suggested alternatives:\n")
+	for i, alt := range alternatives {
+		fmt.Printf("   %d) %s\n", i+1, alt)
+	}
+	fmt.Printf("   c) Enter custom prefix\n\n")
+
+	// Prompt for selection
+	fmt.Printf("  Select prefix [1-%d/c]: ", len(alternatives))
+	var input string
+	fmt.Scanln(&input)
+
+	// Handle custom input
+	if input == "c" || input == "C" {
+		fmt.Printf("  Enter custom prefix: ")
+		fmt.Scanln(&input)
+		if !isValidBeadsPrefix(input) {
+			return "", fmt.Errorf("invalid prefix format: must be alphanumeric with optional hyphens, start with letter, max 20 chars")
+		}
+		if m.isPrefixTaken(input, existingPrefixes) {
+			return "", fmt.Errorf("prefix '%s' is already in use", input)
+		}
+		return input, nil
+	}
+
+	// Handle numeric selection
+	var choice int
+	if _, err := fmt.Sscanf(input, "%d", &choice); err != nil || choice < 1 || choice > len(alternatives) {
+		return "", fmt.Errorf("invalid selection: %s", input)
+	}
+
+	return alternatives[choice-1], nil
+}
+
+// generateAlternativePrefixes creates alternative prefix suggestions when collision occurs
+func (m *Manager) generateAlternativePrefixes(rigName string, existingPrefixes map[string]string) []string {
+	var alternatives []string
+
+	// Strategy 1: Use first 3-4 chars
+	if len(rigName) >= 3 {
+		alt := strings.ToLower(rigName[:3])
+		if !m.isPrefixTaken(alt, existingPrefixes) {
+			alternatives = append(alternatives, alt)
+		}
+	}
+	if len(rigName) >= 4 {
+		alt := strings.ToLower(rigName[:4])
+		if !m.isPrefixTaken(alt, existingPrefixes) {
+			alternatives = append(alternatives, alt)
+		}
+	}
+
+	// Strategy 2: Use first and last char
+	if len(rigName) >= 2 {
+		alt := strings.ToLower(string(rigName[0]) + string(rigName[len(rigName)-1]))
+		if !m.isPrefixTaken(alt, existingPrefixes) {
+			alternatives = append(alternatives, alt)
+		}
+	}
+
+	// Strategy 3: Add numeric suffix to original suggestion
+	for i := 2; i <= 9; i++ {
+		alt := deriveBeadsPrefix(rigName) + fmt.Sprintf("%d", i)
+		if !m.isPrefixTaken(alt, existingPrefixes) {
+			alternatives = append(alternatives, alt)
+			break
+		}
+	}
+
+	// Ensure we always have at least one alternative
+	if len(alternatives) == 0 {
+		// Last resort: use a random combination
+		alt := strings.ToLower(rigName[:1] + "x")
+		alternatives = append(alternatives, alt)
+	}
+
+	// Limit to 3 suggestions
+	if len(alternatives) > 3 {
+		alternatives = alternatives[:3]
+	}
+
+	return alternatives
+}
+
 func resolveLocalRepo(path, gitURL string) (string, string) {
 	if path == "" {
 		return "", ""
@@ -238,7 +354,23 @@ func (m *Manager) AddRig(opts AddRigOptions) (*Rig, error) {
 
 	// Derive defaults
 	if opts.BeadsPrefix == "" {
-		opts.BeadsPrefix = deriveBeadsPrefix(opts.Name)
+		derivedPrefix := deriveBeadsPrefix(opts.Name)
+
+		// Check for prefix collision with existing rigs
+		existingPrefixes, err := m.loadExistingPrefixes()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  Warning: Could not check for prefix collisions: %v\n", err)
+			opts.BeadsPrefix = derivedPrefix
+		} else if m.isPrefixTaken(derivedPrefix, existingPrefixes) {
+			// Collision detected - prompt user
+			newPrefix, promptErr := m.promptForPrefix(opts.Name, derivedPrefix, existingPrefixes)
+			if promptErr != nil {
+				return nil, fmt.Errorf("prefix collision: %w", promptErr)
+			}
+			opts.BeadsPrefix = newPrefix
+		} else {
+			opts.BeadsPrefix = derivedPrefix
+		}
 	}
 
 	localRepo, warn := resolveLocalRepo(opts.LocalRepo, opts.GitURL)
@@ -504,12 +636,19 @@ Use crew for your own workspace. Polecats are for batch work dispatch.
 	}
 	fmt.Printf("   ✓ Initialized beads (prefix: %s)\n", opts.BeadsPrefix)
 
-	// Create rig-level agent beads (witness, refinery) in rig beads.
-	// Town-level agents (mayor, deacon) are created by gt install in town beads.
-	if err := m.initAgentBeads(rigPath, opts.Name, opts.BeadsPrefix); err != nil {
-		// Non-fatal: log warning but continue
-		fmt.Fprintf(os.Stderr, "  Warning: Could not create agent beads: %v\n", err)
+	// Create settings/config.json with safe defaults (hq-5qqi)
+	// This ensures AllowDirectMainMerge defaults to false (fail-safe)
+	fmt.Printf("  Creating rig settings with safe defaults...\n")
+	settingsPath := filepath.Join(rigPath, "settings", "config.json")
+	rigSettings := config.NewRigSettings()
+	if err := config.SaveRigSettings(settingsPath, rigSettings); err != nil {
+		return nil, fmt.Errorf("creating rig settings: %w", err)
 	}
+	fmt.Printf("   ✓ Created settings/config.json (merge safety: enabled)\n")
+
+	// Agent beads are created lazily on first spawn (hq-gk2v).
+	// This avoids stale ID issues when bd rename-prefix is used.
+	// Town-level agents (mayor, deacon) are created by gt install in town beads.
 
 	// Seed patrol molecules for this rig
 	if err := m.seedPatrolMolecules(rigPath); err != nil {
@@ -671,6 +810,10 @@ func (m *Manager) initBeads(rigPath, prefix string) error {
 
 // initAgentBeads creates rig-level agent beads for Witness and Refinery.
 // These agents use the rig's beads prefix and are stored in rig beads.
+//
+// DEPRECATED: As of hq-gk2v, agent beads are created lazily on first spawn
+// to avoid stale ID issues when bd rename-prefix is used. This function is
+// kept for backward compatibility and manual repairs.
 //
 // Town-level agents (Mayor, Deacon) are created by gt install in town beads.
 // Role beads are also created by gt install with hq- prefix.

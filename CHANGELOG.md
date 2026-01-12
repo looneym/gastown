@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Local Fork: Critical Safety Improvements
+
+These changes represent our local fork divergence from upstream steveyegge/gastown. Focused on:
+- **Operational Safety** - BD daemon flags and merge queue defaults prevent silent failures
+- **Protected Repository Support** - Integration branches enable workflows on GitHub-protected repos
+- **Structured Workflows** - Formula-based startup and work assignment
+
+See epic hq-navo for detailed synchronization analysis with upstream.
+
+#### Critical Safety
+- **BD daemon flags in sling.go** - Added `--no-daemon` flags to all 18 `bd` command invocations in sling workflow. Prevents silent hook failures caused by daemon socket timing issues and race conditions
+- **Merge queue safety defaults** - `AllowDirectMainMerge` now defaults to `false` (fail-safe). Prevents accidental direct merges to protected main branches without explicit configuration (hq-5qqi)
+- **Protected repo architecture** - Complete integration branch support for GitHub protected branches, enabling infrastructure and intercom rig workflows without direct main access
+
+#### Integration Branch Workflow
+- **Integration branch support** - Automatic routing of epic-based work to `integration/<epic-id>` branches instead of main
+- **Protected vs unprotected rig modes** - Configuration via `allow_direct_main_merge` policy with automatic target branch selection
+- **Mayor template documentation** - 107 new lines documenting protected repo workflow, integration branch lifecycle, and epic scaffolding
+- **Witness template documentation** - 63 new lines covering integration branch awareness, automatic routing, escalation considerations, and cleanup verification
+- **Refinery engineer integration** - `determineTargetBranch()` function implements epic relationship checking and integration branch routing
+
+#### Work Management & Validation
+- **Epic policy validation** - `warnIfPolicyViolation()` function provides advisory warnings when dispatching work without parent epic to strict-policy rigs
+- **Lazy agent bead creation** - Agent beads now created on-demand during first sling instead of upfront at rig creation. Tolerates `bd rename-prefix` operations
+- **Rig prefix collision detection** - Automatic detection and prompts when adding rigs with conflicting prefixes
+
+#### Formulas & Workflows
+- **mol-mayor-startup formula** - Structured 7-step startup workflow for Mayor
+- **Post-merge binary rebuild** - Added post-merge-rebuild step to mol-refinery-patrol formula
+- **Mol-polecat-work molecule pouring** - Pours and hooks structured workflow molecule during polecat spawns
+- **Formula provisioning** - Formulas now automatically provisioned during `gt rig add`
+
+#### Development Features
+- **Local-only refinery mode** - `local_only` config flag skips remote pushes
+- **Auto-pour mol-mayor-startup on boot** - Mayor automatically receives startup molecule
+
+#### Local Fork Fixes
+- **Auto-import retry on DB sync error** - Maintains propulsion compliance with self-healing
+- **Undefined polecatPath variables** - Fixed compilation errors in polecat manager
+- **Global gitignore override** - Ensures beads sync files aren't ignored
+- **Feed graceful degradation** - Feed handler gracefully handles missing event sources
+- **CanMergeToMain validation** - Added validation with fail-safe logic
+- **Safe merge defaults on rig add** - New rigs created with safe merge queue settings
+
 ## [0.2.6] - 2026-01-12
 
 ### Added
@@ -181,6 +225,7 @@ Priming subsystem overhaul and Zero Framework Cognition (ZFC) improvements.
 - **Refactored beads/mail modules** - Split large files into focused modules for maintainability
 
 ## [0.2.3] - 2026-01-09
+>>>>>>> upstream/main
 
 Worker safety release - prevents accidental termination of active agents.
 

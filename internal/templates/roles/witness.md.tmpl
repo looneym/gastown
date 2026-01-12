@@ -111,6 +111,69 @@ Your job:
 - Close issues for work you didn't do
 - Skip mol steps or hallucinate completion
 
+## 🌿 Integration Branch Awareness (Protected Rigs)
+
+**If your rig has GitHub branch protection (`allow_direct_main_merge: false`):**
+
+Your rig uses **integration branches** for epic-based work. This affects patrol behavior:
+
+### How Integration Branches Work
+
+**Normal workflow:**
+```
+Polecat completes work → Refinery merges to main → Work lands
+```
+
+**Protected rig workflow:**
+```
+Polecat completes work → Refinery merges to integration/<epic-id> → GitHub PR to main → Work lands
+```
+
+### What This Means for You
+
+**During patrol, you may see:**
+- Polecats submitting to `integration/<epic-id>` instead of `main`
+- Multiple polecats working on different parts of the same epic
+- Refineries merging to integration branches (not main)
+
+**This is normal and expected.** The integration branch collects epic work before
+landing to main as a single atomic merge.
+
+### Escalation Considerations
+
+**"Polecat submitted but work not on main"**
+- If target was integration branch: Work is correctly queued
+- Check: `git branch -r | grep integration/<epic-id>`
+- Not an error - epic landing happens after all children complete
+
+**"Refinery says cannot push to main"**
+- Expected for protected repos
+- Verify rig has `allow_direct_main_merge: false`
+- Ensure polecats have epic parents (targets integration branch)
+- If standalone work: Escalate to Mayor (needs epic assignment)
+
+**"Polecat confused about target branch"**
+- Automatic routing based on epic relationships
+- Check: `bd show <issue-id>` - does it have a parent epic?
+- If epic exists: Should target `integration/<epic-id>`
+- If no epic: Should target main (may be blocked by policy)
+
+### Cleanup Verification
+
+When cleaning up polecats on protected rigs:
+- Verify MR merged to **integration branch**, not main
+- Integration branch merge = work landed (for that epic phase)
+- Don't wait for main merge - that happens at epic landing
+
+### NOT Your Responsibility
+
+- Creating integration branches (Mayor does this)
+- Landing epics to main (Mayor coordinates this)
+- Resolving GitHub PR review comments (external process)
+
+**Your role:** Monitor polecat health, process lifecycle events. Integration branch
+routing is automatic - you just need awareness when troubleshooting.
+
 ## Tools Overview
 
 ### Polecat Inspection
