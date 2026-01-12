@@ -7,65 +7,233 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Critical Safety Improvements
+### Local Fork: Critical Safety Improvements
 
-- **BD daemon flags in sling.go** - Added `--no-daemon` flags to all 18 `bd` command invocations in sling workflow. Prevents silent hook failures caused by daemon socket timing issues and race conditions (lines 403, 412, 430, 472, 534, 563, 748, 772, 918, 924, 1048, 1057, 1080, 1475, 1485, 1599, 1691, 1700)
+These changes represent our local fork divergence from upstream steveyegge/gastown. Focused on:
+- **Operational Safety** - BD daemon flags and merge queue defaults prevent silent failures
+- **Protected Repository Support** - Integration branches enable workflows on GitHub-protected repos
+- **Structured Workflows** - Formula-based startup and work assignment
+
+See epic hq-navo for detailed synchronization analysis with upstream.
+
+#### Critical Safety
+- **BD daemon flags in sling.go** - Added `--no-daemon` flags to all 18 `bd` command invocations in sling workflow. Prevents silent hook failures caused by daemon socket timing issues and race conditions
 - **Merge queue safety defaults** - `AllowDirectMainMerge` now defaults to `false` (fail-safe). Prevents accidental direct merges to protected main branches without explicit configuration (hq-5qqi)
 - **Protected repo architecture** - Complete integration branch support for GitHub protected branches, enabling infrastructure and intercom rig workflows without direct main access
 
-### Added
-
 #### Integration Branch Workflow
-- **Integration branch support** - Automatic routing of epic-based work to `integration/<epic-id>` branches instead of main (commit 90e93644)
+- **Integration branch support** - Automatic routing of epic-based work to `integration/<epic-id>` branches instead of main
 - **Protected vs unprotected rig modes** - Configuration via `allow_direct_main_merge` policy with automatic target branch selection
-- **Mayor template documentation** - 107 new lines documenting protected repo workflow, integration branch lifecycle, and epic scaffolding (lines 213-320)
-- **Witness template documentation** - 63 new lines covering integration branch awareness, automatic routing, escalation considerations, and cleanup verification (lines 114-176)
-- **Refinery engineer integration** - `determineTargetBranch()` function implements epic relationship checking and integration branch routing (38 lines in refinery_handlers.go)
+- **Mayor template documentation** - 107 new lines documenting protected repo workflow, integration branch lifecycle, and epic scaffolding
+- **Witness template documentation** - 63 new lines covering integration branch awareness, automatic routing, escalation considerations, and cleanup verification
+- **Refinery engineer integration** - `determineTargetBranch()` function implements epic relationship checking and integration branch routing
 
 #### Work Management & Validation
-- **Epic policy validation** - `warnIfPolicyViolation()` function provides advisory warnings when dispatching work without parent epic to strict-policy rigs. Includes instructions for creating epics while respecting Mayor judgment (81 lines added to sling.go, commit 77b1c259)
-- **Lazy agent bead creation** - Agent beads now created on-demand during first sling instead of upfront at rig creation. Tolerates `bd rename-prefix` operations without requiring rig recreation (hq-gk2v, commits b1d70bda, 86b3373f)
-- **Rig prefix collision detection** - Automatic detection and prompts when adding rigs with conflicting prefixes (commit e41dd1ae, hq-jbj6)
+- **Epic policy validation** - `warnIfPolicyViolation()` function provides advisory warnings when dispatching work without parent epic to strict-policy rigs
+- **Lazy agent bead creation** - Agent beads now created on-demand during first sling instead of upfront at rig creation. Tolerates `bd rename-prefix` operations
+- **Rig prefix collision detection** - Automatic detection and prompts when adding rigs with conflicting prefixes
 
 #### Formulas & Workflows
-- **mol-mayor-startup formula** - Structured 7-step startup workflow for Mayor: check-hook, check-mail, grease-status, convoy-status, rig-status, report-status, await-orders. Replaces ad-hoc startup with repeatable checklist (219 lines, commit b256698c)
-- **Post-merge binary rebuild** - Added post-merge-rebuild step to mol-refinery-patrol formula. Recompiles binaries after main merges with configurable `PostMergeRebuild` and `RebuildCommand` settings (commits b147c13f, cb688e9a, 1a8fd3a4)
-- **Mol-polecat-work molecule pouring** - Pours and hooks structured workflow molecule during polecat spawns, enabling GUPP compliance with step-by-step guidance (commit 0e15ce39)
-- **Formula provisioning** - Formulas now automatically provisioned during `gt rig add` (commit fdb3c200, gt-yof)
+- **mol-mayor-startup formula** - Structured 7-step startup workflow for Mayor
+- **Post-merge binary rebuild** - Added post-merge-rebuild step to mol-refinery-patrol formula
+- **Mol-polecat-work molecule pouring** - Pours and hooks structured workflow molecule during polecat spawns
+- **Formula provisioning** - Formulas now automatically provisioned during `gt rig add`
 
 #### Development Features
-- **Local-only refinery mode** - `local_only` config flag skips remote pushes, enables testing merge logic without pushing to origin (commit 6384145f, gt-p6d)
-- **Auto-pour mol-mayor-startup on boot** - Mayor automatically receives startup molecule on boot for structured session initialization (commit 66293f2c, gt-48h)
+- **Local-only refinery mode** - `local_only` config flag skips remote pushes
+- **Auto-pour mol-mayor-startup on boot** - Mayor automatically receives startup molecule
+
+#### Local Fork Fixes
+- **Auto-import retry on DB sync error** - Maintains propulsion compliance with self-healing
+- **Undefined polecatPath variables** - Fixed compilation errors in polecat manager
+- **Global gitignore override** - Ensures beads sync files aren't ignored
+- **Feed graceful degradation** - Feed handler gracefully handles missing event sources
+- **CanMergeToMain validation** - Added validation with fail-safe logic
+- **Safe merge defaults on rig add** - New rigs created with safe merge queue settings
+
+## [0.2.6] - 2026-01-12
+
+### Added
+
+#### Escalation System
+- **Unified escalation system** - Complete escalation implementation with severity levels, routing, and tracking (gt-i9r20)
+- **Escalation config schema alignment** - Configuration now matches design doc specifications
+
+#### Agent Identity & Management
+- **`gt polecat identity` subcommand group** - Agent bead management commands for polecat lifecycle
+- **AGENTS.md fallback copy** - Polecats automatically copy AGENTS.md from mayor/rig for context bootstrapping
+- **`--debug` flag for `gt crew at`** - Debug mode for crew attachment troubleshooting
+- **Boot role detection in priming** - Proper context injection for boot role agents (#370)
+
+#### Statusline Improvements
+- **Per-agent-type health tracking** - Statusline now shows health status per agent type (#344)
+- **Visual rig grouping** - Rigs sorted by activity with visual grouping in tmux statusline (#337)
+
+#### Mail & Communication
+- **`gt mail show` alias** - Alternative command for reading mail (#340)
+
+#### Developer Experience
+- **`gt stale` command** - Check for stale binaries and version mismatches
+
+### Changed
+
+- **Refactored statusline** - Merged session loops and removed dead code for cleaner implementation
+- **Refactored sling.go** - Split 1560-line file into 7 focused modules for maintainability
+- **Magic numbers extracted** - Suggest package now uses named constants (#353)
 
 ### Fixed
 
-- **Auto-import retry on DB sync error** - When `gt hook` encounters JSONL/DB mismatch during GUPP startup, automatically imports and retries. Maintains propulsion compliance with self-healing (16 lines in hook.go, commit 3c4c76e2, gt-hbo7)
-- **Undefined polecatPath variables** - Fixed compilation errors in polecat manager (`polecatPath` → `clonePath` corrections, commit 274eb4c6)
-- **Global gitignore override** - Ensures beads sync files aren't ignored by user's global gitignore settings. Critical for multi-clone beads coordination (10 lines in .gitignore, commit e521cc76)
-- **Feed graceful degradation** - Feed handler gracefully handles missing event sources instead of crashing. Prevents availability issues from cascading (26 lines in events.go, commits 655f4caa, a71220c0)
-- **CanMergeToMain validation** - Added validation with fail-safe logic to prevent merges to protected branches (commit 37b47ed3, hq-5qqi)
-- **Safe merge defaults on rig add** - New rigs created with safe merge queue settings by default (commit 0d178759, hq-5qqi)
+#### Configuration & Environment
+- **Empty GT_ROOT/BEADS_DIR not exported** - AgentEnv no longer exports empty environment variables (#385)
+- **Inherited BEADS_DIR prefix mismatch** - Prevent inherited BEADS_DIR from causing prefix mismatches (#321)
+
+#### Beads & Routing
+- **routes.jsonl corruption prevention** - Added protection against routes.jsonl corruption with doctor check for rig-level issues (#377)
+- **Tracked beads init after clone** - Initialize beads database for tracked beads after git clone (#376)
+- **Rig root from BeadsPath()** - Correctly return rig root to respect redirect system
+
+#### Sling & Formula
+- **Feature and issue vars in formula-on-bead mode** - Pass both variables correctly (#382)
+- **Crew member shorthand resolution** - Resolve crew members correctly with shorthand paths
+- **Removed obsolete --naked flag** - Cleanup of deprecated sling option
+
+#### Doctor & Diagnostics
+- **Role beads check with shared definitions** - Doctor now validates role beads using shared role definitions (#378)
+- **Filter bd "Note:" messages** - Custom types check no longer confused by bd informational output (#381)
+
+#### Installation & Setup
+- **gt:role label on role beads** - Role beads now properly labeled during creation (#383)
+- **Fetch origin after refspec config** - Bare clones now fetch after configuring refspec (#384)
+- **Allow --wrappers in existing town** - No longer recreates HQ unnecessarily (#366)
+
+#### Session & Lifecycle
+- **Fallback instructions in start/restart beacons** - Session beacons now include fallback instructions
+- **Handoff recognizes polecat session pattern** - Correctly handles gt-<rig>-<name> session names (#373)
+- **gt done resilient to missing agent beads** - No longer fails when agent beads don't exist
+- **MR beads as ephemeral wisps** - Create MR beads as ephemeral wisps for proper cleanup
+- **Auto-detect cleanup status** - Prevents premature polecat nuke (#361)
+- **Delete remote polecat branches after merge** - Refinery cleans up remote branches (#369)
+
+#### Costs & Events
+- **Query all beads locations for session events** - Cost tracking finds events across locations (#374)
+
+#### Linting & Quality
+- **errcheck and unparam violations resolved** - Fixed linting errors
+- **NudgeSession for all agent notifications** - Mail now uses consistent notification method
 
 ### Documentation
 
-- **Polecat workflow documentation** - Complete polecat-specific workflow guidance for agents covering spawn triggers, mol-based orchestration, session management, and lifecycle states (45 lines added to polecat.md.tmpl, commits dbed2e13, 7c3c1a5e, a8d50b62, ee14e244)
-- **Refinery template updates** - Added patrol workflow and protected repo handling documentation (72 lines in refinery.md.tmpl)
-- **POLECAT_WORKFLOW_TEST.md** - Testing documentation for polecat workflows (33 lines, commit a8d50b62)
+- **Polecat three-state model** - Clarified working/stalled/zombie states
+- **Name pool vs polecat pool** - Clarified misconception about pools
+- **Plugin and escalation system designs** - Added design documentation
+- **Documentation reorganization** - Concepts, design, and examples structure
+- **gt prime clarification** - Clarified that gt prime is context recovery, not session start (GH #308)
+- **Formula package documentation** - Comprehensive package docs
+- **Various godoc additions** - GenerateMRIDWithTime, isAutonomousRole, formatInt, nil sentinel pattern
+- **Beads issue ID format** - Clarified format in README (gt-uzx2c)
+- **Stale polecat identity description** - Fixed outdated documentation
 
-### Implementation Notes
+### Tests
 
-This release represents a fork divergence from upstream steveyegge/gastown. Our local changes focus on:
+- **AGENTS.md worktree tests** - Test coverage for AGENTS.md in worktrees
+- **Comprehensive test coverage** - Added tests for 5 packages (#351)
+- **Sling test for bd empty output** - Fixed test for empty output handling
 
-1. **Operational Safety** - BD daemon flags and merge queue defaults prevent silent failures
-2. **Protected Repository Support** - Integration branches enable workflows on GitHub-protected repos (infrastructure/intercom)
-3. **Structured Workflows** - Formula-based startup and work assignment replace ad-hoc patterns
-4. **Agent Template Documentation** - Comprehensive protected repo workflow guidance prevents agent confusion
+### Deprecated
 
-These changes were developed to address specific operational needs discovered during multi-rig Gas Town deployment. See epic hq-navo for detailed synchronization analysis with upstream.
+- **`gt polecat add`** - Added migration warning for deprecated command
 
-## [0.2.3] - 2026-01-08
+### Contributors
+
+Thanks to all contributors for this release:
+- @JeremyKalmus - Various contributions (#364)
+- @boshu2 - Formula package documentation (#343), PR documentation (#352)
+- @sauerdaniel - Polecat mail notification fix (#347)
+- @abhijit360 - Assign model to role (#368)
+- @julianknutsen - Beads path fix (#334)
+
+## [0.2.5] - 2026-01-11
+
+### Added
+- **`gt mail mark-read`** - Mark messages as read without opening them (desire path)
+- **`gt down --polecats`** - Shut down polecats without affecting other components
+- **Self-cleaning polecat model** - Polecats self-nuke on completion, witness tracks leases
+- **`gt prime --state` validation** - Flag exclusivity checks for cleaner CLI
+
+### Changed
+- **Removed `gt stop`** - Use `gt down --polecats` instead (cleaner semantics)
+- **Policy-neutral templates** - crew.md.tmpl checks remote origin for PR policy
+- **Refactored prime.go** - Split 1833-line file into logical modules
+
+### Fixed
+- **Polecat re-spawn** - CreateOrReopenAgentBead handles polecat lifecycle correctly (#333)
+- **Vim mode compatibility** - tmux sends Escape before Enter for vim users
+- **Worktree default branch** - Uses rig's configured default branch (#325)
+- **Agent bead type** - Sets --type=agent when creating agent beads
+- **Bootstrap priming** - Reduced AGENTS.md to bootstrap pointer, fixed CLAUDE.md templates
+
+### Documentation
+- Updated witness help text for self-cleaning model
+- Updated daemon comments for self-cleaning model
+- Policy-aware PR guidance in crew template
+
+## [0.2.4] - 2026-01-10
+
+Priming subsystem overhaul and Zero Framework Cognition (ZFC) improvements.
+
+### Added
+
+#### Priming Subsystem
+- **PRIME.md provisioning** - Auto-provision PRIME.md at rig level so all workers inherit Gas Town context (GUPP, hooks, propulsion) (#hq-5z76w)
+- **Post-handoff detection** - `gt prime` detects handoff marker and outputs "HANDOFF COMPLETE" warning to prevent handoff loop bug (#hq-ukjrr)
+- **Priming health checks** - `gt doctor` validates priming subsystem: SessionStart hook, gt prime command, PRIME.md presence, CLAUDE.md size (#hq-5scnt)
+- **`gt prime --dry-run`** - Preview priming without side effects
+- **`gt prime --state`** - Output session state (normal, post-handoff, crash-recovery, autonomous)
+- **`gt prime --explain`** - Add [EXPLAIN] tags for debugging priming decisions
+
+#### Formula & Configuration
+- **Rig-level default formulas** - Configure default formula at rig level (#297)
+- **Witness --agent/--env overrides** - Override agent and environment variables for witness (#293, #294)
+
+#### Developer Experience
+- **UX system import** - Comprehensive UX system from beads (#311)
+- **Explicit handoff instructions** - Clearer nudge message for handoff recipients
+
+### Fixed
+
+#### Zero Framework Cognition (ZFC)
+- **Query tmux directly** - Remove marker TTL, query tmux for agent state
+- **Remove PID-based detection** - Agent liveness from tmux, not PIDs
+- **Agent-controlled thresholds** - Stuck detection moved to agent config
+- **Remove pending.json tracking** - Eliminated anti-pattern
+- **Derive state from files** - ZFC state from filesystem, not memory cache
+- **Remove Go-side computation** - No stderr parsing violations
+
+#### Hooks & Beads
+- **Cross-level hook visibility** - Hooked beads visible to mayor/deacon (#aeb4c0d)
+- **Warn on closed hooked bead** - Alert when hooked bead already closed (#2f50a59)
+- **Correct agent bead ID format** - Fix bd create flags for agent beads (#c4fcdd8)
+
+#### Formula
+- **rigPath fallback** - Set rigPath when falling back to gastown default (#afb944f)
+
+#### Doctor
+- **Full AgentEnv for env-vars check** - Use complete environment for validation (#ce231a3)
+
+### Changed
+
+- **Refactored beads/mail modules** - Split large files into focused modules for maintainability
+
+## [0.2.3] - 2026-01-09
+>>>>>>> upstream/main
 
 Worker safety release - prevents accidental termination of active agents.
+
+> **Note**: The Deacon safety improvements are believed to be correct but have not
+> yet been extensively tested in production. We recommend running with
+> `gt deacon pause` initially and monitoring behavior before enabling full patrol.
+> Please report any issues. A 0.3.0 release will follow once these changes are
+> battle-tested.
 
 ### Critical Safety Improvements
 

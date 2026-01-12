@@ -6,23 +6,27 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/constants"
 	"github.com/steveyegge/gastown/internal/style"
 	"github.com/steveyegge/gastown/internal/tmux"
+	"github.com/steveyegge/gastown/internal/workspace"
 )
 
 var (
-	costsJSON   bool
-	costsToday  bool
-	costsWeek   bool
-	costsByRole bool
-	costsByRig  bool
+	costsJSON    bool
+	costsToday   bool
+	costsWeek    bool
+	costsByRole  bool
+	costsByRig   bool
+	costsVerbose bool
 
 	// Record subcommand flags
 	recordSession  string
@@ -127,6 +131,7 @@ func init() {
 	costsCmd.Flags().BoolVar(&costsWeek, "week", false, "Show this week's total from session events")
 	costsCmd.Flags().BoolVar(&costsByRole, "by-role", false, "Show breakdown by role")
 	costsCmd.Flags().BoolVar(&costsByRig, "by-rig", false, "Show breakdown by rig")
+	costsCmd.Flags().BoolVarP(&costsVerbose, "verbose", "v", false, "Show debug output for failures")
 
 	// Add record subcommand
 	costsCmd.AddCommand(costsRecordCmd)
@@ -273,10 +278,7 @@ func runCostsFromLedger() error {
 	} else {
 		// No time filter: query both digests and legacy session.ended events
 		// (for backwards compatibility during migration)
-		entries, err = querySessionEvents()
-		if err != nil {
-			return fmt.Errorf("querying session events: %w", err)
-		}
+		entries = querySessionEvents()
 	}
 
 	if len(entries) == 0 {
@@ -351,7 +353,62 @@ type EventListItem struct {
 }
 
 // querySessionEvents queries beads for session.ended events and converts them to CostEntry.
-func querySessionEvents() ([]CostEntry, error) {
+// It queries both town-level beads and all rig-level beads to find all session events.
+// Errors from individual locations are logged (if verbose) but don't fail the query.
+func querySessionEvents() []CostEntry {
+	// Discover town root for cwd-based bd discovery
+	townRoot, err := workspace.FindFromCwdOrError()
+	if err != nil {
+		// Not in a Gas Town workspace - return empty list
+		return nil
+	}
+
+	// Collect all beads locations to query
+	beadsLocations := []string{townRoot}
+
+	// Load rigs to find all rig beads locations
+	rigsConfigPath := filepath.Join(townRoot, constants.DirMayor, constants.FileRigsJSON)
+	rigsConfig, err := config.LoadRigsConfig(rigsConfigPath)
+	if err == nil && rigsConfig != nil {
+		for rigName := range rigsConfig.Rigs {
+			rigPath := filepath.Join(townRoot, rigName)
+			// Verify rig has a beads database
+			rigBeadsPath := filepath.Join(rigPath, constants.DirBeads)
+			if _, statErr := os.Stat(rigBeadsPath); statErr == nil {
+				beadsLocations = append(beadsLocations, rigPath)
+			}
+		}
+	}
+
+	// Query each beads location and merge results
+	var allEntries []CostEntry
+	seenIDs := make(map[string]bool)
+
+	for _, location := range beadsLocations {
+		entries, err := querySessionEventsFromLocation(location)
+		if err != nil {
+			// Log but continue with other locations
+			if costsVerbose {
+				fmt.Fprintf(os.Stderr, "[costs] query from %s failed: %v\n", location, err)
+			}
+			continue
+		}
+
+		// Deduplicate by event ID (use SessionID as key)
+		for _, entry := range entries {
+			key := entry.SessionID + entry.EndedAt.String()
+			if !seenIDs[key] {
+				seenIDs[key] = true
+				allEntries = append(allEntries, entry)
+			}
+		}
+	}
+
+	return allEntries
+}
+
+// querySessionEventsFromLocation queries a single beads location for session.ended events.
+func querySessionEventsFromLocation(location string) ([]CostEntry, error) {
 	// Step 1: Get list of event IDs
 	listArgs := []string{
 		"list",
@@ -362,6 +419,7 @@ func querySessionEvents() ([]CostEntry, error) {
 	}
 
 	listCmd := exec.Command("bd", listArgs...)
+	listCmd.Dir = location
 	listOutput, err := listCmd.Output()
 	if err != nil {
 		// If bd fails (e.g., no beads database), return empty list
@@ -385,6 +443,7 @@ func querySessionEvents() ([]CostEntry, error) {
 	}
 
 	showCmd := exec.Command("bd", showArgs...)
+	showCmd.Dir = location
 	showOutput, err := showCmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("showing events: %w", err)
@@ -991,6 +1050,9 @@ func querySessionCostWisps(targetDate time.Time) ([]CostEntry, error) {
 	listOutput, err := listCmd.Output()
 	if err != nil {
 		// No wisps database or command failed
+		if costsVerbose {
+			fmt.Fprintf(os.Stderr, "[costs] wisp list failed: %v\n", err)
+		}
 		return nil, nil
 	}
 
@@ -1003,29 +1065,27 @@ func querySessionCostWisps(targetDate time.Time) ([]CostEntry, error) {
 		return nil, nil
 	}
 
-	// Get full details for each wisp to check event_kind and payload
+	// Batch all wisp IDs into a single bd show call to avoid N+1 queries
+	showArgs := []string{"show", "--json"}
+	for _, wisp := range wispList.Wisps {
+		showArgs = append(showArgs, wisp.ID)
+	}
+
+	showCmd := exec.Command("bd", showArgs...)
+	showOutput, err := showCmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("showing wisps: %w", err)
+	}
+
+	var events []SessionEvent
+	if err := json.Unmarshal(showOutput, &events); err != nil {
+		return nil, fmt.Errorf("parsing wisp details: %w", err)
+	}
+
 	var sessionCostWisps []CostEntry
 	targetDay := targetDate.Format("2006-01-02")
 
-	for _, wisp := range wispList.Wisps {
-		// Get full wisp details
-		showCmd := exec.Command("bd", "show", wisp.ID, "--json")
-		showOutput, err := showCmd.Output()
-		if err != nil {
-			continue
-		}
-
-		var events []SessionEvent
-		if err := json.Unmarshal(showOutput, &events); err != nil {
-			continue
-		}
-
-		if len(events) == 0 {
-			continue
-		}
-
-		event := events[0]
-
+	for _, event := range events {
 		// Filter for session.ended events only
 		if event.EventKind != "session.ended" {
 			continue
@@ -1035,6 +1095,9 @@ func querySessionCostWisps(targetDate time.Time) ([]CostEntry, error) {
 		var payload SessionPayload
 		if event.Payload != "" {
 			if err := json.Unmarshal([]byte(event.Payload), &payload); err != nil {
+				if costsVerbose {
+					fmt.Fprintf(os.Stderr, "[costs] payload unmarshal failed for event %s: %v\n", event.ID, err)
+				}
 				continue
 			}
 		}
@@ -1075,17 +1138,27 @@ func createCostDigestBead(digest CostDigest) (string, error) {
 
 	if len(digest.ByRole) > 0 {
 		desc.WriteString("## By Role\n")
-		for role, cost := range digest.ByRole {
+		roles := make([]string, 0, len(digest.ByRole))
+		for role := range digest.ByRole {
+			roles = append(roles, role)
+		}
+		sort.Strings(roles)
+		for _, role := range roles {
 			icon := constants.RoleEmoji(role)
-			desc.WriteString(fmt.Sprintf("- %s %s: $%.2f\n", icon, role, cost))
+			desc.WriteString(fmt.Sprintf("- %s %s: $%.2f\n", icon, role, digest.ByRole[role]))
 		}
 		desc.WriteString("\n")
 	}
 
 	if len(digest.ByRig) > 0 {
 		desc.WriteString("## By Rig\n")
-		for rig, cost := range digest.ByRig {
-			desc.WriteString(fmt.Sprintf("- %s: $%.2f\n", rig, cost))
+		rigs := make([]string, 0, len(digest.ByRig))
+		for rig := range digest.ByRig {
+			rigs = append(rigs, rig)
+		}
+		sort.Strings(rigs)
+		for _, rig := range rigs {
+			desc.WriteString(fmt.Sprintf("- %s: $%.2f\n", rig, digest.ByRig[rig]))
 		}
 		desc.WriteString("\n")
 	}
@@ -1129,6 +1202,9 @@ func deleteSessionCostWisps(targetDate time.Time) (int, error) {
 	listCmd := exec.Command("bd", "mol", "wisp", "list", "--all", "--json")
 	listOutput, err := listCmd.Output()
 	if err != nil {
+		if costsVerbose {
+			fmt.Fprintf(os.Stderr, "[costs] wisp list failed in deletion: %v\n", err)
+		}
 		return 0, nil
 	}
 
@@ -1138,18 +1214,26 @@ func deleteSessionCostWisps(targetDate time.Time) (int, error) {
 	}
 
 	targetDay := targetDate.Format("2006-01-02")
-	deletedCount := 0
+
+	// Collect all wisp IDs that match our criteria
+	var wispIDsToDelete []string
 
 	for _, wisp := range wispList.Wisps {
 		// Get full wisp details to check if it's a session.ended event
 		showCmd := exec.Command("bd", "show", wisp.ID, "--json")
 		showOutput, err := showCmd.Output()
 		if err != nil {
+			if costsVerbose {
+				fmt.Fprintf(os.Stderr, "[costs] bd show failed for wisp %s: %v\n", wisp.ID, err)
+			}
 			continue
 		}
 
 		var events []SessionEvent
 		if err := json.Unmarshal(showOutput, &events); err != nil {
+			if costsVerbose {
+				fmt.Fprintf(os.Stderr, "[costs] JSON unmarshal failed for wisp %s: %v\n", wisp.ID, err)
+			}
 			continue
 		}
 
@@ -1168,6 +1252,9 @@ func deleteSessionCostWisps(targetDate time.Time) (int, error) {
 		var payload SessionPayload
 		if event.Payload != "" {
 			if err := json.Unmarshal([]byte(event.Payload), &payload); err != nil {
+				if costsVerbose {
+					fmt.Fprintf(os.Stderr, "[costs] payload unmarshal failed for wisp %s: %v\n", wisp.ID, err)
+				}
 				continue
 			}
 		}
@@ -1184,14 +1271,21 @@ func deleteSessionCostWisps(targetDate time.Time) (int, error) {
 			continue
 		}
 
-		// Delete using bd mol burn (for ephemeral wisps)
-		burnCmd := exec.Command("bd", "mol", "burn", wisp.ID)
-		if burnErr := burnCmd.Run(); burnErr == nil {
-			deletedCount++
-		}
+		wispIDsToDelete = append(wispIDsToDelete, wisp.ID)
 	}
 
-	return deletedCount, nil
+	if len(wispIDsToDelete) == 0 {
+		return 0, nil
+	}
+
+	// Batch delete all wisps in a single subprocess call
+	burnArgs := append([]string{"mol", "burn", "--force"}, wispIDsToDelete...)
+	burnCmd := exec.Command("bd", burnArgs...)
+	if burnErr := burnCmd.Run(); burnErr != nil {
+		return 0, fmt.Errorf("batch burn failed: %w", burnErr)
+	}
+
+	return len(wispIDsToDelete), nil
 }
 
 // runCostsMigrate migrates legacy session.ended beads to the new architecture.
