@@ -210,6 +210,113 @@ Rigs can set epic policy via bead labels on the rig identity bead:
 bd update <rig-bead-id> --label epic_policy:strict
 ```
 
+## 🌿 Integration Branch Workflow & Protected Repos
+
+### Protected vs. Unprotected Rigs
+
+Gas Town supports two rig modes for handling GitHub branch protection:
+
+| Mode | Config | Main Merges | Use Case |
+|------|--------|-------------|----------|
+| **Unprotected** | `allow_direct_main_merge: true` | ✅ Direct | Maintainer repos with push access |
+| **Protected** | `allow_direct_main_merge: false` (default) | ❌ Blocked | GitHub protected branches, org repos |
+
+**Protected repo workflow:**
+- GitHub branch protection prevents direct pushes to `main`/`master`
+- All work must target epic integration branches instead
+- Integration branches merge to main via GitHub PR (handled externally)
+
+**Unprotected repo workflow:**
+- Direct push access to main
+- Can still use integration branches for epic organization
+- Refinery merges directly to main
+
+**Check rig policy:**
+```bash
+git remote -v                     # Verify repo URL
+bd show <rig-bead-id>             # Check allow_direct_main_merge
+```
+
+### Integration Branch Lifecycle (For Protected Repos)
+
+**When dispatching multi-task work to a protected rig:**
+
+**1. File the Epic:**
+```bash
+bd create --type=epic --title="Authentication Overhaul" --priority=1
+# Example: gt-auth
+```
+
+**2. Create Integration Branch:**
+```bash
+gt mq integration create <epic-id>
+# Creates integration/<epic-id> from main, pushes to origin
+```
+
+**3. File Child Issues and Link to Epic:**
+```bash
+bd create --type=task --title="JWT implementation" --parent=gt-auth
+bd create --type=task --title="Session middleware" --parent=gt-auth
+bd create --type=task --title="Login endpoints" --parent=gt-auth
+```
+
+**4. Dispatch Work:**
+```bash
+gt sling gt-abc gastown        # JWT implementation
+gt sling gt-def gastown        # Session middleware
+gt sling gt-xyz gastown        # Login endpoints
+```
+
+**Automatic routing:** Polecats submit to `integration/gt-auth`, not main.
+The Refinery merges to integration branch automatically.
+
+**5. Land the Epic (After All Children Complete):**
+```bash
+gt mq integration land <epic-id>
+# Verifies all child MRs merged, runs tests, creates GitHub PR for epic → main
+```
+
+### Common Patterns
+
+**Protected Repo (infrastructure, intercom):**
+```
+Epic Filing → Integration Branch Creation → Child Dispatch → Refinery Merges to Integration → GitHub PR to Main
+```
+
+**Unprotected Repo (gastown):**
+```
+Optional Epic → Direct Dispatch → Refinery Merges to Main
+(Can still use integration branches for organization)
+```
+
+### Troubleshooting
+
+**"Refinery cannot push to protected main"**
+- Expected behavior for protected repos
+- Solution: Use integration branch workflow above
+- All child work targets integration branch, not main
+
+**"Work is blocked without epic assignment"**
+- Protected rigs require epic-based organization
+- File epic, create integration branch, link work to epic
+
+**"Polecat doesn't know which branch to target"**
+- Automatic: If issue has parent epic → targets `integration/<epic-id>`
+- Automatic: If issue standalone → targets main (may be blocked by policy)
+- Polecats don't choose - the system routes based on epic relationships
+
+### Mayor Responsibility for Protected Rigs
+
+**Your role:**
+1. **Pre-flight check:** Verify rig policy before dispatching
+2. **Epic scaffolding:** Create epic and integration branch BEFORE dispatch
+3. **Work organization:** Link all child issues to parent epic
+4. **Landing coordination:** Use `gt mq integration land` when epic complete
+
+**NOT your role:**
+- Merging integration branches to main (GitHub PR handles that)
+- Resolving GitHub PR review comments (delegated to human or specific agents)
+
 ## Key Commands
 
 ### Communication
