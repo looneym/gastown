@@ -312,40 +312,9 @@ If you skipped notifications or archiving, GO BACK AND DO THEM NOW.
 Main has moved. Any remaining branches need rebasing on new baseline."""
 
 [[steps]]
-id = "post-merge-rebuild"
-title = "Rebuild binary if configured"
-needs = ["merge-push"]
-description = """
-Check if post_merge_rebuild is enabled and rebuild the binary.
-
-```bash
-# Check config
-if jq -e '.merge_queue.post_merge_rebuild == true' ../../config.json >/dev/null 2>&1; then
-    REBUILD_CMD=$(jq -r '.merge_queue.rebuild_command' ../../config.json)
-    echo "🔨 Rebuilding binary: $REBUILD_CMD"
-
-    if eval "$REBUILD_CMD"; then
-        echo "✅ Binary rebuilt successfully"
-        gt version  # Verify
-    else
-        echo "⚠️  Rebuild FAILED"
-        bd create --type=bug --priority=0 \
-          --title="CRITICAL: Post-merge rebuild failed" \
-          --description="Command failed: $REBUILD_CMD
-
-Error occurred after merge. Investigate immediately."
-    fi
-else
-    echo "ℹ️  post_merge_rebuild not enabled"
-fi
-```
-
-Include rebuild status in generate-summary step."""
-
-[[steps]]
 id = "loop-check"
 title = "Check for more work"
-needs = ["post-merge-rebuild"]
+needs = ["merge-push"]
 description = """
 More branches to process?
 
