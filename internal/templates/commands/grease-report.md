@@ -14,42 +14,77 @@ You are a **Grease Status Reporter** that provides tabular summaries of grease s
 
 **Purpose**: Output two tables showing current grease stream status and convoy progress. No other output, explanations, or recommendations.
 
-## Process
+## Query Logic
 
-### Step 1: Query Meta Documentation
+### Table 1: Meta Documentation
+**Goal**: Show all grease-related documentation and workflows
+
+**Query**:
 ```bash
-# Get meta docs epic (contains validation workflows, process docs, etc.)
 bd list --parent=hq-rib.11
-
-# Show each meta doc bead
-bd show <meta-bead-id>
 ```
 
-### Step 2: Query Grease Stream Status
+**Filtering**:
+- Show ALL children of hq-rib.11 regardless of status
+- Include: validation workflows, runbooks, process docs
+- For each: extract title, ID, status, short description (first line or sentence)
+
+**Why**: Meta docs are always relevant for reference, even if closed
+
+### Table 2: Grease Streams
+**Goal**: Show OPEN work streams organizing grease beads
+
+**Query**:
 ```bash
-# Get all stream epics under master grease epic (hq-rib)
-bd list --parent=hq-rib --type=epic --status=open
-bd list --parent=hq-rib --type=epic --status=closed
-
-# Filter results to ONLY include stream epics (hq-rib.1 through hq-rib.8)
-# EXCLUDE: hq-h4yz (Infrastructure & Plumbing - closed, not a stream)
-# EXCLUDE: hq-rib.11 (META epic - shown separately in Meta Documentation table)
-
-# For each stream, count children by status
-bd list --parent=<stream-id> --status=open
-bd list --parent=<stream-id> --status=closed
+# Get all children of master grease epic
+bd list --parent=hq-rib --type=epic
 ```
 
-### Step 3: Query Convoy Status
-```bash
-# List all convoys with labels containing grease
-bd list --type=convoy --label=grease
+**Filtering Algorithm**:
+1. Start with all epics under hq-rib
+2. KEEP if:
+   - Title contains "STREAM" (case insensitive)
+   - Status is OPEN
+3. EXCLUDE:
+   - Closed streams (work is done, no need to show)
+   - hq-rib.11 (META epic, shown in Table 1)
+   - Any epic without "STREAM" in title (e.g., old infrastructure epics)
 
-# Check convoy status and bead counts
+**For each stream**:
+```bash
+# Count children
+bd list --parent=<stream-id> --status=open  # open count
+bd list --parent=<stream-id>                # total count
+```
+
+**Extract**: Stream number, title, priority, root cause (from description)
+
+**Why**: Only show active streams where work remains. Closed streams are historical.
+
+### Table 3: Grease Convoys
+**Goal**: Show active convoy work related to grease
+
+**Query**:
+```bash
+bd list --type=convoy --label=grease --status=open
+```
+
+**Filtering**:
+- Show ONLY open convoys
+- Must have "grease" label OR be child of grease epic
+- Closed convoys are historical, don't show
+
+**For each convoy**:
+```bash
 bd show <convoy-id>
+# Parse: work bead IDs, completion count, created date
 ```
 
-### Step 4: Generate Tables
+**Extract**: Convoy name, completion ratio, created date, blocking status
+
+**Why**: Focus on active work. Closed convoys are in git history.
+
+### Generate Tables
 
 **Table 1: Meta Documentation**
 ```
@@ -68,67 +103,120 @@ Note: This table shows CHILDREN of hq-rib.11 (META epic), not the epic itself.
 | Convoy | Status | Beads (Done/Total) | Created | Notes |
 ```
 
-## Implementation Logic
+## Implementation Algorithm
 
-**Meta Documentation Discovery:**
-- Query hq-rib.11 (META epic) for children
-- List each child bead (NOT the hq-rib.11 epic itself)
-- Show ID, status, and short description for each meta doc
+### Building Table 1: Meta Documentation
 
-**Stream Status Determination:**
-- Query all epics under hq-rib
-- Filter to ONLY include stream epics: hq-rib.1 through hq-rib.8
-- EXCLUDE hq-h4yz (Infrastructure & Plumbing) and hq-rib.11 (META)
-- Count open vs closed children beads for each stream
-- Check parent epic status
-- Extract priority from bead metadata
-- Get description summary for root cause
-
-**Convoy Status Determination:**
-- Parse convoy bead metadata
-- Count work beads in convoy
-- Check completion status of each bead
-- Determine if convoy is blocked
-
-**Output Format:**
-- Clean markdown tables
-- No commentary or analysis
-- No recommendations or suggestions
-- Just the data
-- Three tables: Meta Docs, Streams, Convoys
-
-## Expected Behavior
-
-When El Presidente runs `/grease-report`:
-
-**Output:**
-```markdown
-## Grease Meta Documentation
-
-| Doc | ID | Status | Description |
-|-----|-----|--------|-------------|
-| Validation Workflow & Runbook | hq-rib.10 | Open | Complete turn-based validation protocol |
-
-## Grease Streams Status
-
-| Stream | Status | Beads (Open/Total) | Priority | Root Cause |
-|--------|--------|-------------------|----------|------------|
-| Stream 1: Git Infrastructure | Closed | 0/3 | P0 | Beads/git coupling |
-| Stream 2: Agent Lifecycle | Open | 3/3 | P1 | State machine broken |
-| Stream 3: Beads Sync | Open | 2/2 | P1 | Hash tracking |
-| Stream 8: Gas Town Dev Infra | Closed | 0/4 | P1 | Build management |
-| ... | ... | ... | ... | ... |
-
-## Grease Convoys
-
-| Convoy | Status | Beads (Done/Total) | Created | Notes |
-|--------|--------|-------------------|---------|-------|
-| convoy-abc | Complete | 5/5 | 2026-01-10 | Validation turn 1 |
-| convoy-xyz | Blocked | 2/6 | 2026-01-11 | Waiting on Stream 1 |
-| ... | ... | ... | ... | ... |
+```python
+# Pseudocode
+meta_docs = query("bd list --parent=hq-rib.11")
+for doc in meta_docs:
+    details = query(f"bd show {doc.id}")
+    row = {
+        "Doc": extract_title(details),
+        "ID": doc.id,
+        "Status": doc.status,
+        "Description": first_sentence(details.description)
+    }
+    output_row(row)
 ```
 
-**No additional output.**
+**Key**: Show ALL children, any status, with concise description
+
+### Building Table 2: Grease Streams
+
+```python
+# Pseudocode
+all_epics = query("bd list --parent=hq-rib --type=epic")
+streams = []
+
+for epic in all_epics:
+    # Filter logic
+    if "STREAM" not in epic.title.upper():
+        continue  # Not a stream epic
+    if epic.id == "hq-rib.11":
+        continue  # META epic, shown in Table 1
+    if epic.status == "closed":
+        continue  # Closed streams don't need monitoring
+
+    # Count children
+    open_beads = query(f"bd list --parent={epic.id} --status=open").count()
+    total_beads = query(f"bd list --parent={epic.id}").count()
+
+    row = {
+        "Stream": extract_stream_title(epic.title),  # "STREAM 2: Agent State Tracking"
+        "Status": epic.status,
+        "Beads": f"{open_beads}/{total_beads}",
+        "Priority": epic.priority,
+        "Root Cause": extract_root_cause(epic.description)  # First line or summary
+    }
+    streams.append(row)
+
+# Sort by priority (P0 first), then by stream number
+streams.sort(key=lambda x: (x["Priority"], x["Stream"]))
+output_table(streams)
+```
+
+**Key**: Dynamic filtering based on title pattern and status, not hardcoded IDs
+
+### Building Table 3: Grease Convoys
+
+```python
+# Pseudocode
+convoys = query("bd list --type=convoy --label=grease --status=open")
+
+if not convoys:
+    output("No active grease convoys.")
+    return
+
+for convoy in convoys:
+    details = query(f"bd show {convoy.id}")
+    work_beads = parse_convoy_beads(details)
+    completed = count_closed(work_beads)
+    total = len(work_beads)
+
+    row = {
+        "Convoy": convoy.title,
+        "Status": determine_status(convoy, work_beads),  # "Working" / "Blocked" / "Done"
+        "Beads": f"{completed}/{total}",
+        "Created": format_date(convoy.created_at),
+        "Notes": extract_notes(convoy.description)  # Brief summary or blocking reason
+    }
+    output_row(row)
+```
+
+**Key**: Show only OPEN convoys. Closed convoys are historical.
+
+## Output Format Rules
+
+- Clean markdown tables
+- No commentary, analysis, or recommendations
+- No hardcoded examples in output
+- If a category is empty: show "No active [category]" message
+- Three tables always present (even if empty)
+- Dynamic data only - what's in the DB NOW
+
+## Expected Output Format
+
+When El Presidente runs `/grease-report`, output contains THREE tables with current database state:
+
+**Table 1: Grease Meta Documentation**
+- All children of hq-rib.11 (any status)
+- Columns: Doc | ID | Status | Description
+- Empty state: "No meta documentation found."
+
+**Table 2: Grease Streams Status**
+- Open stream epics under hq-rib (title contains "STREAM")
+- Sorted by priority, then stream number
+- Columns: Stream | Status | Beads (Open/Total) | Priority | Root Cause
+- Empty state: "No active grease streams."
+
+**Table 3: Grease Convoys**
+- Open convoys with grease label
+- Columns: Convoy | Status | Beads (Done/Total) | Created | Notes
+- Empty state: "No active grease convoys."
+
+**No additional output, commentary, or analysis.**
 
 ## Advanced Features
 
