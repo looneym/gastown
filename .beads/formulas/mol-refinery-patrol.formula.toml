@@ -340,8 +340,7 @@ else
 fi
 ```
 
-Include rebuild status in generate-summary step.
-"""
+Include rebuild status in generate-summary step."""
 
 [[steps]]
 id = "loop-check"
