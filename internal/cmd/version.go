@@ -27,13 +27,24 @@ var versionCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		commit := resolveCommitHash()
 		branch := resolveBranch()
+		buildDir := resolveBuildDir()
+		buildTime := resolveBuildTime()
 
+		// Main version line
 		if commit != "" && branch != "" {
 			fmt.Printf("gt version %s (%s: %s@%s)\n", Version, Build, branch, version.ShortCommit(commit))
 		} else if commit != "" {
 			fmt.Printf("gt version %s (%s: %s)\n", Version, Build, version.ShortCommit(commit))
 		} else {
 			fmt.Printf("gt version %s (%s)\n", Version, Build)
+		}
+
+		// Build metadata
+		if buildDir != "" {
+			fmt.Printf("  Build directory: %s\n", buildDir)
+		}
+		if buildTime != "" {
+			fmt.Printf("  Build time: %s\n", buildTime)
 		}
 	},
 }
@@ -83,6 +94,31 @@ func resolveBranch() string {
 	if output, err := cmd.Output(); err == nil {
 		if branch := strings.TrimSpace(string(output)); branch != "" && branch != "HEAD" {
 			return branch
+		}
+	}
+
+	return ""
+}
+
+func resolveBuildDir() string {
+	// Try to get the working directory from build info
+	if info, ok := debug.ReadBuildInfo(); ok {
+		// The Path field contains the module path
+		if info.Main.Path != "" {
+			return info.Main.Path
+		}
+	}
+
+	return ""
+}
+
+func resolveBuildTime() string {
+	// Get VCS time from build info (Go 1.18+)
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, setting := range info.Settings {
+			if setting.Key == "vcs.time" && setting.Value != "" {
+				return setting.Value
+			}
 		}
 	}
 
