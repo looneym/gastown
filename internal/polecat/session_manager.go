@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/constants"
 	"github.com/steveyegge/gastown/internal/rig"
@@ -168,26 +169,37 @@ func (m *SessionManager) Start(polecat string, opts SessionStartOptions) error {
 		return fmt.Errorf("ensuring runtime settings: %w", err)
 	}
 
-	// Create session
-	if err := m.tmux.NewSession(sessionID, workDir); err != nil {
+	// Build startup command first
+	command := opts.Command
+	if command == "" {
+		command = config.BuildPolecatStartupCommand(m.rig.Name, polecat, m.rig.Path, "")
+	}
+	// Prepend runtime config dir env if needed
+	if runtimeConfig.Session != nil && runtimeConfig.Session.ConfigDirEnv != "" && opts.RuntimeConfigDir != "" {
+		command = config.PrependEnv(command, map[string]string{runtimeConfig.Session.ConfigDirEnv: opts.RuntimeConfigDir})
+	}
+
+	// Create session with command directly to avoid send-keys race condition.
+	// See: https://github.com/anthropics/gastown/issues/280
+	if err := m.tmux.NewSessionWithCommand(sessionID, workDir, command); err != nil {
 		return fmt.Errorf("creating session: %w", err)
 	}
 
 	// Set environment (non-fatal: session works without these)
-	debugSession("SetEnvironment GT_RIG", m.tmux.SetEnvironment(sessionID, "GT_RIG", m.rig.Name))
-	debugSession("SetEnvironment GT_POLECAT", m.tmux.SetEnvironment(sessionID, "GT_POLECAT", polecat))
-
-	// Set runtime config dir for account selection (non-fatal)
-	if runtimeConfig.Session != nil && runtimeConfig.Session.ConfigDirEnv != "" && opts.RuntimeConfigDir != "" {
-		debugSession("SetEnvironment "+runtimeConfig.Session.ConfigDirEnv, m.tmux.SetEnvironment(sessionID, runtimeConfig.Session.ConfigDirEnv, opts.RuntimeConfigDir))
-	}
-
-	// Set beads environment for worktree polecats (non-fatal)
+	// Use centralized AgentEnv for consistency across all role startup paths
 	townRoot := filepath.Dir(m.rig.Path)
-	beadsDir := filepath.Join(townRoot, ".beads")
-	debugSession("SetEnvironment BEADS_DIR", m.tmux.SetEnvironment(sessionID, "BEADS_DIR", beadsDir))
-	debugSession("SetEnvironment BEADS_NO_DAEMON", m.tmux.SetEnvironment(sessionID, "BEADS_NO_DAEMON", "1"))
-	debugSession("SetEnvironment BEADS_AGENT_NAME", m.tmux.SetEnvironment(sessionID, "BEADS_AGENT_NAME", fmt.Sprintf("%s/%s", m.rig.Name, polecat)))
+	envVars := config.AgentEnv(config.AgentEnvConfig{
+		Role:             "polecat",
+		Rig:              m.rig.Name,
+		AgentName:        polecat,
+		TownRoot:         townRoot,
+		BeadsDir:         beads.ResolveBeadsDir(m.rig.Path),
+		RuntimeConfigDir: opts.RuntimeConfigDir,
+		BeadsNoDaemon:    true,
+	})
+	for k, v := range envVars {
+		debugSession("SetEnvironment "+k, m.tmux.SetEnvironment(sessionID, k, v))
+	}
 
 	// Hook the issue to the polecat if provided via --issue flag
 	if opts.Issue != "" {
@@ -204,24 +216,6 @@ func (m *SessionManager) Start(polecat string, opts SessionStartOptions) error {
 	// Set pane-died hook for crash detection (non-fatal)
 	agentID := fmt.Sprintf("%s/%s", m.rig.Name, polecat)
 	debugSession("SetPaneDiedHook", m.tmux.SetPaneDiedHook(sessionID, agentID))
-
-	// Send initial command with env vars exported inline
-	command := opts.Command
-	if command == "" {
-		command = config.BuildPolecatStartupCommand(m.rig.Name, polecat, m.rig.Path, "")
-	}
-	// Prepend runtime config dir env if needed
-	if runtimeConfig.Session != nil && runtimeConfig.Session.ConfigDirEnv != "" && opts.RuntimeConfigDir != "" {
-		command = config.PrependEnv(command, map[string]string{runtimeConfig.Session.ConfigDirEnv: opts.RuntimeConfigDir})
-	}
-	// Wait for shell to be ready before sending keys (prevents "can't find pane" under load)
-	if err := m.tmux.WaitForShellReady(sessionID, 5*time.Second); err != nil {
-		_ = m.tmux.KillSession(sessionID)
-		return fmt.Errorf("waiting for shell: %w", err)
-	}
-	if err := m.tmux.SendKeys(sessionID, command); err != nil {
-		return fmt.Errorf("sending command: %w", err)
-	}
 
 	// Wait for Claude to start (non-fatal)
 	debugSession("WaitForCommand", m.tmux.WaitForCommand(sessionID, constants.SupportedShells, constants.ClaudeStartTimeout))

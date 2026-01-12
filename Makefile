@@ -23,16 +23,9 @@ ifeq ($(shell uname),Darwin)
 endif
 
 install: build
+	cp $(BUILD_DIR)/$(BINARY) ~/.local/bin/$(BINARY)
 ifeq ($(shell uname),Darwin)
-	@# macOS: Use symlink to avoid code signing issues (hq-i6nu)
-	@rm -f ~/.local/bin/$(BINARY) ~/go/bin/$(BINARY)
-	@ln -sf $(shell pwd)/$(BUILD_DIR)/$(BINARY) ~/go/bin/$(BINARY)
-	@echo "Installed $(BINARY) via symlink to ~/go/bin/$(BINARY)"
-else
-	@# Linux: cp works fine
-	@mkdir -p ~/.local/bin
-	@cp $(BUILD_DIR)/$(BINARY) ~/.local/bin/$(BINARY)
-	@echo "Installed $(BINARY) to ~/.local/bin/$(BINARY)"
+	@codesign -s - -f ~/.local/bin/$(BINARY) 2>/dev/null || true
 endif
 
 clean:

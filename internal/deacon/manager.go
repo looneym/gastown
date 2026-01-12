@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/claude"
 	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/constants"
@@ -79,36 +80,33 @@ func (m *Manager) Start(agentOverride string) error {
 		return fmt.Errorf("ensuring Claude settings: %w", err)
 	}
 
-	// Create new tmux session
-	if err := t.NewSession(sessionID, deaconDir); err != nil {
+	// Build startup command first
+	// Restarts are handled by daemon via ensureDeaconRunning on each heartbeat
+	startupCmd, err := config.BuildAgentStartupCommandWithAgentOverride("deacon", "deacon", "", "", agentOverride)
+	if err != nil {
+		return fmt.Errorf("building startup command: %w", err)
+	}
+
+	// Create session with command directly to avoid send-keys race condition.
+	// See: https://github.com/anthropics/gastown/issues/280
+	if err := t.NewSessionWithCommand(sessionID, deaconDir, startupCmd); err != nil {
 		return fmt.Errorf("creating tmux session: %w", err)
 	}
 
 	// Set environment variables (non-fatal: session works without these)
-	_ = t.SetEnvironment(sessionID, "GT_ROLE", "deacon")
-	_ = t.SetEnvironment(sessionID, "BD_ACTOR", "deacon")
+	// Use centralized AgentEnv for consistency across all role startup paths
+	envVars := config.AgentEnv(config.AgentEnvConfig{
+		Role:     "deacon",
+		TownRoot: m.townRoot,
+		BeadsDir: beads.ResolveBeadsDir(m.townRoot),
+	})
+	for k, v := range envVars {
+		_ = t.SetEnvironment(sessionID, k, v)
+	}
 
 	// Apply Deacon theming (non-fatal: theming failure doesn't affect operation)
 	theme := tmux.DeaconTheme()
 	_ = t.ConfigureGasTownSession(sessionID, theme, "", "Deacon", "health-check")
-
-	// Launch Claude directly (no shell respawn loop)
-	// Restarts are handled by daemon via ensureDeaconRunning on each heartbeat
-	startupCmd, err := config.BuildAgentStartupCommandWithAgentOverride("deacon", "deacon", "", "", agentOverride)
-	if err != nil {
-		_ = t.KillSession(sessionID)
-		return fmt.Errorf("building startup command: %w", err)
-	}
-
-	// Wait for shell to be ready before sending keys (prevents "can't find pane" under load)
-	if err := t.WaitForShellReady(sessionID, 5*time.Second); err != nil {
-		_ = t.KillSession(sessionID)
-		return fmt.Errorf("waiting for shell: %w", err)
-	}
-	if err := t.SendKeysDelayed(sessionID, startupCmd, 200); err != nil {
-		_ = t.KillSession(sessionID) // best-effort cleanup
-		return fmt.Errorf("starting Claude agent: %w", err)
-	}
 
 	// Wait for Claude to start (non-fatal)
 	if err := t.WaitForCommand(sessionID, constants.SupportedShells, constants.ClaudeStartTimeout); err != nil {

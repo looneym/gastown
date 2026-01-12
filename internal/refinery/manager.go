@@ -114,9 +114,10 @@ func (m *Manager) Start(foreground bool) error {
 	sessionID := m.SessionName()
 
 	if foreground {
-		// In foreground mode, we're likely running inside the tmux session
-		// that background mode created. Only check PID to avoid self-detection.
-		if ref.State == StateRunning && ref.PID > 0 && util.ProcessExists(ref.PID) {
+		// In foreground mode, check tmux session (no PID inference per ZFC)
+		townRoot := filepath.Dir(m.rig.Path)
+		agentCfg := config.ResolveAgentConfig(townRoot, m.rig.Path)
+		if running, _ := t.HasSession(sessionID); running && t.IsAgentRunning(sessionID, config.ExpectedPaneCommands(agentCfg)...) {
 			return ErrAlreadyRunning
 		}
 
@@ -124,7 +125,7 @@ func (m *Manager) Start(foreground bool) error {
 		now := time.Now()
 		ref.State = StateRunning
 		ref.StartedAt = &now
-		ref.PID = os.Getpid()
+		ref.PID = 0 // No longer track PID (ZFC)
 
 		if err := m.saveState(ref); err != nil {
 			return err
@@ -151,10 +152,7 @@ func (m *Manager) Start(foreground bool) error {
 		}
 	}
 
-	// Also check via PID for backwards compatibility
-	if ref.State == StateRunning && ref.PID > 0 && util.ProcessExists(ref.PID) {
-		return ErrAlreadyRunning
-	}
+	// Note: No PID check per ZFC - tmux session is the source of truth
 
 	// Background mode: spawn a Claude agent in a tmux session
 	// The Claude agent handles MR processing using git commands and beads
@@ -162,8 +160,9 @@ func (m *Manager) Start(foreground bool) error {
 	// Working directory is the refinery worktree (shares .git with mayor/polecats)
 	refineryRigDir := filepath.Join(m.rig.Path, "refinery", "rig")
 	if _, err := os.Stat(refineryRigDir); os.IsNotExist(err) {
-		// Fall back to rig path if refinery/rig doesn't exist
-		refineryRigDir = m.workDir
+		// Fall back to mayor/rig (legacy architecture) - ensures we use project git, not town git.
+		// Using rig.Path directly would find town's .git with rig-named remotes instead of "origin".
+		refineryRigDir = filepath.Join(m.rig.Path, "mayor", "rig")
 	}
 
 	// Ensure runtime settings exist in refinery/ (not refinery/rig/) so we don't
@@ -174,23 +173,34 @@ func (m *Manager) Start(foreground bool) error {
 		return fmt.Errorf("ensuring runtime settings: %w", err)
 	}
 
-	if err := t.NewSession(sessionID, refineryRigDir); err != nil {
+	// Build startup command first
+	bdActor := fmt.Sprintf("%s/refinery", m.rig.Name)
+	command := config.BuildAgentStartupCommand("refinery", bdActor, m.rig.Path, "")
+
+	// Create session with command directly to avoid send-keys race condition.
+	// See: https://github.com/anthropics/gastown/issues/280
+	if err := t.NewSessionWithCommand(sessionID, refineryRigDir, command); err != nil {
 		return fmt.Errorf("creating tmux session: %w", err)
 	}
 
 	// Set environment variables (non-fatal: session works without these)
-	bdActor := fmt.Sprintf("%s/refinery", m.rig.Name)
-	_ = t.SetEnvironment(sessionID, "GT_RIG", m.rig.Name)
-	_ = t.SetEnvironment(sessionID, "GT_REFINERY", "1")
-	_ = t.SetEnvironment(sessionID, "GT_ROLE", "refinery")
-	_ = t.SetEnvironment(sessionID, "BD_ACTOR", bdActor)
+	// Use centralized AgentEnv for consistency across all role startup paths
+	townRoot := filepath.Dir(m.rig.Path)
+	envVars := config.AgentEnv(config.AgentEnvConfig{
+		Role:          "refinery",
+		Rig:           m.rig.Name,
+		TownRoot:      townRoot,
+		BeadsDir:      beads.ResolveBeadsDir(m.rig.Path),
+		BeadsNoDaemon: true,
+	})
 
-	// Set beads environment - refinery uses rig-level beads (non-fatal)
-	// Use ResolveBeadsDir to handle both tracked (mayor/rig) and local beads
-	beadsDir := beads.ResolveBeadsDir(m.rig.Path)
-	_ = t.SetEnvironment(sessionID, "BEADS_DIR", beadsDir)
-	_ = t.SetEnvironment(sessionID, "BEADS_NO_DAEMON", "1")
-	_ = t.SetEnvironment(sessionID, "BEADS_AGENT_NAME", fmt.Sprintf("%s/refinery", m.rig.Name))
+	// Add refinery-specific flag
+	envVars["GT_REFINERY"] = "1"
+
+	// Set all env vars in tmux session (for debugging) and they'll also be exported to Claude
+	for k, v := range envVars {
+		_ = t.SetEnvironment(sessionID, k, v)
+	}
 
 	// Apply theme (non-fatal: theming failure doesn't affect operation)
 	theme := tmux.AssignTheme(m.rig.Name)
@@ -204,22 +214,6 @@ func (m *Manager) Start(foreground bool) error {
 	if err := m.saveState(ref); err != nil {
 		_ = t.KillSession(sessionID) // best-effort cleanup on state save failure
 		return fmt.Errorf("saving state: %w", err)
-	}
-
-	// Start Claude agent with full permissions (like polecats)
-	// NOTE: No gt prime injection needed - SessionStart hook handles it automatically
-	// Restarts are handled by daemon via LIFECYCLE mail, not shell loops
-	// Export GT_ROLE and BD_ACTOR in the command since tmux SetEnvironment only affects new panes
-	command := config.BuildAgentStartupCommand("refinery", bdActor, m.rig.Path, "")
-	// Wait for shell to be ready before sending keys (prevents "can't find pane" under load)
-	if err := t.WaitForShellReady(sessionID, 5*time.Second); err != nil {
-		_ = t.KillSession(sessionID)
-		return fmt.Errorf("waiting for shell: %w", err)
-	}
-	if err := t.SendKeys(sessionID, command); err != nil {
-		// Clean up the session on failure (best-effort cleanup)
-		_ = t.KillSession(sessionID)
-		return fmt.Errorf("starting Claude agent: %w", err)
 	}
 
 	// Wait for Claude to start and show its prompt (non-fatal)
@@ -274,13 +268,7 @@ func (m *Manager) Stop() error {
 		_ = t.KillSession(sessionID)
 	}
 
-	// If we have a PID and it's a different process, try to stop it gracefully
-	if ref.PID > 0 && ref.PID != os.Getpid() && util.ProcessExists(ref.PID) {
-		// Send SIGTERM (best-effort graceful stop)
-		if proc, err := os.FindProcess(ref.PID); err == nil {
-			_ = proc.Signal(os.Interrupt)
-		}
-	}
+	// Note: No PID-based stop per ZFC - tmux session kill is sufficient
 
 	ref.State = StateStopped
 	ref.PID = 0
@@ -675,7 +663,7 @@ func (m *Manager) FindMR(idOrBranch string) (*MergeRequest, error) {
 		if item.MR.Branch == idOrBranch {
 			return item.MR, nil
 		}
-		if "polecat/"+idOrBranch == item.MR.Branch {
+		if constants.BranchPolecatPrefix+idOrBranch == item.MR.Branch {
 			return item.MR, nil
 		}
 		// Match by worker name (partial match for convenience)
