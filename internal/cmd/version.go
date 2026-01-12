@@ -100,8 +100,9 @@ func resolveBranch() string {
 	return ""
 }
 
+// resolveBuildDir returns the module path from build info.
+// This helps identify which workspace/clone the binary was built from.
 func resolveBuildDir() string {
-	// Try to get the working directory from build info
 	if info, ok := debug.ReadBuildInfo(); ok {
 		// The Path field contains the module path
 		if info.Main.Path != "" {
@@ -112,8 +113,9 @@ func resolveBuildDir() string {
 	return ""
 }
 
+// resolveBuildTime returns the VCS commit timestamp from build info (Go 1.18+).
+// This shows when the code was committed, useful for tracking build freshness.
 func resolveBuildTime() string {
-	// Get VCS time from build info (Go 1.18+)
 	if info, ok := debug.ReadBuildInfo(); ok {
 		for _, setting := range info.Settings {
 			if setting.Key == "vcs.time" && setting.Value != "" {
