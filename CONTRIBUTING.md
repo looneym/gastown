@@ -9,6 +9,31 @@ Thanks for your interest in contributing! Gas Town is experimental software, and
 3. Install prerequisites (see README.md)
 4. Build and test: `go build -o gt ./cmd/gt && go test ./...`
 
+## Building and Installing
+
+### Development Build
+
+```bash
+make build    # Build binary to ./gt
+make install  # Build and install to ~/go/bin/gt
+```
+
+### macOS Symlink Requirement
+
+**Important for macOS developers:** The `make install` target uses **symlinks** instead of copying the binary. This avoids macOS code signing issues that cause the binary to hang.
+
+```bash
+# ✓ Correct (symlink)
+ln -sf $(pwd)/gt ~/go/bin/gt
+
+# ✗ Incorrect (copy - causes hang on macOS)
+cp gt ~/go/bin/gt
+```
+
+**Why:** When you `cp` a signed binary on macOS, the code signature becomes invalid, causing the system to quarantine it. This results in the binary hanging on execution. Symlinking preserves the original signature.
+
+**Related:** See grease bead hq-i6nu for full investigation.
+
 ## Development Workflow
 
 We use a direct-to-main workflow for trusted contributors. For external contributors:
