@@ -4,6 +4,15 @@ See **CLAUDE.md** for complete agent context and instructions.
 
 This file exists for compatibility with tools that look for AGENTS.md.
 
+## Polecat Workflow Demonstration
+
+This section documents the complete polecat workflow (gt-wisp-bd2):
+- Context loading and assignment verification
+- Branch setup and test validation
+- Implementation and self-review
+- Test coverage and workspace cleanup
+- Merge queue submission
+
 ## Landing the Plane (Session Completion)
 
 **When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
