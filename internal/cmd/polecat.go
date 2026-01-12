@@ -1479,8 +1479,19 @@ func runPolecatNuke(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		// Step 5: Close agent bead (if exists)
+		// Step 5: Clear hook slot (prevent stale slot blocking future work)
+		// CRITICAL: Must clear BEFORE closing agent bead (gt-i6nu)
 		agentBeadID := beads.PolecatBeadID(p.rigName, p.polecatName)
+		clearCmd := exec.Command("bd", "slot", "clear", agentBeadID, "hook")
+		clearCmd.Dir = filepath.Join(p.r.Path, "mayor", "rig")
+		if err := clearCmd.Run(); err != nil {
+			// Non-fatal - slot might already be clear or agent bead doesn't exist
+			fmt.Printf("  %s hook slot: already clear or not found\n", style.Dim.Render("○"))
+		} else {
+			fmt.Printf("  %s cleared hook slot\n", style.Success.Render("✓"))
+		}
+
+		// Step 6: Close agent bead (if exists)
 		closeArgs := []string{"close", agentBeadID, "--reason=nuked"}
 		if sessionID := runtime.SessionIDFromEnv(); sessionID != "" {
 			closeArgs = append(closeArgs, "--session="+sessionID)
