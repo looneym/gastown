@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Critical Safety Improvements
+
+- **BD daemon flags in sling.go** - Added `--no-daemon` flags to all 18 `bd` command invocations in sling workflow. Prevents silent hook failures caused by daemon socket timing issues and race conditions (lines 403, 412, 430, 472, 534, 563, 748, 772, 918, 924, 1048, 1057, 1080, 1475, 1485, 1599, 1691, 1700)
+- **Merge queue safety defaults** - `AllowDirectMainMerge` now defaults to `false` (fail-safe). Prevents accidental direct merges to protected main branches without explicit configuration (hq-5qqi)
+- **Protected repo architecture** - Complete integration branch support for GitHub protected branches, enabling infrastructure and intercom rig workflows without direct main access
+
+### Added
+
+#### Integration Branch Workflow
+- **Integration branch support** - Automatic routing of epic-based work to `integration/<epic-id>` branches instead of main (commit 90e93644)
+- **Protected vs unprotected rig modes** - Configuration via `allow_direct_main_merge` policy with automatic target branch selection
+- **Mayor template documentation** - 107 new lines documenting protected repo workflow, integration branch lifecycle, and epic scaffolding (lines 213-320)
+- **Witness template documentation** - 63 new lines covering integration branch awareness, automatic routing, escalation considerations, and cleanup verification (lines 114-176)
+- **Refinery engineer integration** - `determineTargetBranch()` function implements epic relationship checking and integration branch routing (38 lines in refinery_handlers.go)
+
+#### Work Management & Validation
+- **Epic policy validation** - `warnIfPolicyViolation()` function provides advisory warnings when dispatching work without parent epic to strict-policy rigs. Includes instructions for creating epics while respecting Mayor judgment (81 lines added to sling.go, commit 77b1c259)
+- **Lazy agent bead creation** - Agent beads now created on-demand during first sling instead of upfront at rig creation. Tolerates `bd rename-prefix` operations without requiring rig recreation (hq-gk2v, commits b1d70bda, 86b3373f)
+- **Rig prefix collision detection** - Automatic detection and prompts when adding rigs with conflicting prefixes (commit e41dd1ae, hq-jbj6)
+
+#### Formulas & Workflows
+- **mol-mayor-startup formula** - Structured 7-step startup workflow for Mayor: check-hook, check-mail, grease-status, convoy-status, rig-status, report-status, await-orders. Replaces ad-hoc startup with repeatable checklist (219 lines, commit b256698c)
+- **Post-merge binary rebuild** - Added post-merge-rebuild step to mol-refinery-patrol formula. Recompiles binaries after main merges with configurable `PostMergeRebuild` and `RebuildCommand` settings (commits b147c13f, cb688e9a, 1a8fd3a4)
+- **Mol-polecat-work molecule pouring** - Pours and hooks structured workflow molecule during polecat spawns, enabling GUPP compliance with step-by-step guidance (commit 0e15ce39)
+- **Formula provisioning** - Formulas now automatically provisioned during `gt rig add` (commit fdb3c200, gt-yof)
+
+#### Development Features
+- **Local-only refinery mode** - `local_only` config flag skips remote pushes, enables testing merge logic without pushing to origin (commit 6384145f, gt-p6d)
+- **Auto-pour mol-mayor-startup on boot** - Mayor automatically receives startup molecule on boot for structured session initialization (commit 66293f2c, gt-48h)
+
+### Fixed
+
+- **Auto-import retry on DB sync error** - When `gt hook` encounters JSONL/DB mismatch during GUPP startup, automatically imports and retries. Maintains propulsion compliance with self-healing (16 lines in hook.go, commit 3c4c76e2, gt-hbo7)
+- **Undefined polecatPath variables** - Fixed compilation errors in polecat manager (`polecatPath` → `clonePath` corrections, commit 274eb4c6)
+- **Global gitignore override** - Ensures beads sync files aren't ignored by user's global gitignore settings. Critical for multi-clone beads coordination (10 lines in .gitignore, commit e521cc76)
+- **Feed graceful degradation** - Feed handler gracefully handles missing event sources instead of crashing. Prevents availability issues from cascading (26 lines in events.go, commits 655f4caa, a71220c0)
+- **CanMergeToMain validation** - Added validation with fail-safe logic to prevent merges to protected branches (commit 37b47ed3, hq-5qqi)
+- **Safe merge defaults on rig add** - New rigs created with safe merge queue settings by default (commit 0d178759, hq-5qqi)
+
+### Documentation
+
+- **Polecat workflow documentation** - Complete polecat-specific workflow guidance for agents covering spawn triggers, mol-based orchestration, session management, and lifecycle states (45 lines added to polecat.md.tmpl, commits dbed2e13, 7c3c1a5e, a8d50b62, ee14e244)
+- **Refinery template updates** - Added patrol workflow and protected repo handling documentation (72 lines in refinery.md.tmpl)
+- **POLECAT_WORKFLOW_TEST.md** - Testing documentation for polecat workflows (33 lines, commit a8d50b62)
+
+### Implementation Notes
+
+This release represents a fork divergence from upstream steveyegge/gastown. Our local changes focus on:
+
+1. **Operational Safety** - BD daemon flags and merge queue defaults prevent silent failures
+2. **Protected Repository Support** - Integration branches enable workflows on GitHub-protected repos (infrastructure/intercom)
+3. **Structured Workflows** - Formula-based startup and work assignment replace ad-hoc patterns
+4. **Agent Template Documentation** - Comprehensive protected repo workflow guidance prevents agent confusion
+
+These changes were developed to address specific operational needs discovered during multi-rig Gas Town deployment. See epic hq-navo for detailed synchronization analysis with upstream.
+
 ## [0.2.3] - 2026-01-08
 
 Worker safety release - prevents accidental termination of active agents.
