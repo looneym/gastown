@@ -22,11 +22,9 @@ ifeq ($(shell uname),Darwin)
 	@echo "Signed $(BINARY) for macOS"
 endif
 
-install: build
-	cp $(BUILD_DIR)/$(BINARY) ~/.local/bin/$(BINARY)
-ifeq ($(shell uname),Darwin)
-	@codesign -s - -f ~/.local/bin/$(BINARY) 2>/dev/null || true
-endif
+install: generate
+	go install -ldflags "$(LDFLAGS)" ./cmd/gt
+	@echo "Installed $(BINARY) to $(shell go env GOPATH)/bin/$(BINARY)"
 
 clean:
 	rm -f $(BUILD_DIR)/$(BINARY)
