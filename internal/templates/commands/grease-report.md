@@ -31,6 +31,10 @@ bd show <meta-bead-id>
 bd list --parent=hq-rib --type=epic --status=open
 bd list --parent=hq-rib --type=epic --status=closed
 
+# Filter results to ONLY include stream epics (hq-rib.1 through hq-rib.8)
+# EXCLUDE: hq-h4yz (Infrastructure & Plumbing - closed, not a stream)
+# EXCLUDE: hq-rib.11 (META epic - shown separately in Meta Documentation table)
+
 # For each stream, count children by status
 bd list --parent=<stream-id> --status=open
 bd list --parent=<stream-id> --status=closed
@@ -49,8 +53,10 @@ bd show <convoy-id>
 
 **Table 1: Meta Documentation**
 ```
-| Doc | ID | Description |
+| Doc | ID | Status | Description |
 ```
+
+Note: This table shows CHILDREN of hq-rib.11 (META epic), not the epic itself.
 
 **Table 2: Grease Streams**
 ```
@@ -66,11 +72,14 @@ bd show <convoy-id>
 
 **Meta Documentation Discovery:**
 - Query hq-rib.11 (META epic) for children
-- List each meta doc bead with ID and short description
-- Extract title and purpose from each meta bead
+- List each child bead (NOT the hq-rib.11 epic itself)
+- Show ID, status, and short description for each meta doc
 
 **Stream Status Determination:**
-- Count open vs closed children beads
+- Query all epics under hq-rib
+- Filter to ONLY include stream epics: hq-rib.1 through hq-rib.8
+- EXCLUDE hq-h4yz (Infrastructure & Plumbing) and hq-rib.11 (META)
+- Count open vs closed children beads for each stream
 - Check parent epic status
 - Extract priority from bead metadata
 - Get description summary for root cause
@@ -96,10 +105,9 @@ When El Presidente runs `/grease-report`:
 ```markdown
 ## Grease Meta Documentation
 
-| Doc | ID | Description |
-|-----|-----|-------------|
-| Validation Workflow & Runbook | hq-rib.10 | Complete turn-based validation protocol |
-| Grease Documentation Epic | hq-rib.11 | Meta docs container |
+| Doc | ID | Status | Description |
+|-----|-----|--------|-------------|
+| Validation Workflow & Runbook | hq-rib.10 | Open | Complete turn-based validation protocol |
 
 ## Grease Streams Status
 
