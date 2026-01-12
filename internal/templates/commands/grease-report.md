@@ -17,7 +17,11 @@ You are a **Grease Status Reporter** that provides tabular summaries of grease s
 ## Query Logic
 
 ### Table 1: Meta Documentation
-**Goal**: Show all grease-related documentation and workflows
+**Goal**: Show all items in the META documentation epic collection
+
+**Structure**:
+- **hq-rib.11** = META epic (parent container - NOT shown in table)
+- **Children of hq-rib.11** = Individual meta docs (ALL shown in table as siblings)
 
 **Query**:
 ```bash
@@ -25,11 +29,16 @@ bd list --parent=hq-rib.11
 ```
 
 **Filtering**:
-- Show ALL children of hq-rib.11 regardless of status
-- Include: validation workflows, runbooks, process docs
+- Show ALL children of the hq-rib.11 epic regardless of status or type
+- These are siblings to each other (validation workflows, runbooks, taxonomies, etc.)
 - For each: extract title, ID, status, short description (first line or sentence)
 
-**Why**: Meta docs are always relevant for reference, even if closed
+**Why**: All meta docs are always relevant for reference, even if closed
+
+**Example items**:
+- hq-rib.10: Validation Workflow & Runbook
+- hq-rib.11.1: Streams Taxonomy & Architecture
+- hq-rib.11.2: Future process docs, etc.
 
 ### Table 2: Grease Streams
 **Goal**: Show OPEN work streams organizing grease beads
@@ -109,11 +118,18 @@ Note: This table shows CHILDREN of hq-rib.11 (META epic), not the epic itself.
 
 ```python
 # Pseudocode
+# hq-rib.11 is the META EPIC (parent container)
+# We show ALL its children (siblings) in the table
 meta_docs = query("bd list --parent=hq-rib.11")
+
+if not meta_docs:
+    output("No meta documentation found.")
+    return
+
 for doc in meta_docs:
     details = query(f"bd show {doc.id}")
     row = {
-        "Doc": extract_title(details),
+        "Doc": clean_title(details.title),  # Remove "META:" prefix if present
         "ID": doc.id,
         "Status": doc.status,
         "Description": first_sentence(details.description)
@@ -121,7 +137,10 @@ for doc in meta_docs:
     output_row(row)
 ```
 
-**Key**: Show ALL children, any status, with concise description
+**Key**:
+- Show ALL children of hq-rib.11 epic (any status, any type)
+- These are sibling beads under the META epic collection
+- The epic itself (hq-rib.11) is NOT shown in the table
 
 ### Building Table 2: Grease Streams
 
@@ -201,9 +220,11 @@ for convoy in convoys:
 When El Presidente runs `/grease-report`, output contains THREE tables with current database state:
 
 **Table 1: Grease Meta Documentation**
-- All children of hq-rib.11 (any status)
+- All children of hq-rib.11 META epic (any status, any type)
+- Items are siblings: validation workflows, taxonomies, runbooks, process docs
 - Columns: Doc | ID | Status | Description
 - Empty state: "No meta documentation found."
+- Note: The epic itself (hq-rib.11) is NOT shown, only its children
 
 **Table 2: Grease Streams Status**
 - Open stream epics under hq-rib (title contains "STREAM")
