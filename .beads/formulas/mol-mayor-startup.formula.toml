@@ -81,9 +81,16 @@ The grease epic (hq-rib) tracks Gas Town setup, polish, and enhancements:
 bd show hq-rib
 ```
 
+Also check for critical grease issues (P0/P1):
+
+```bash
+bd list --label=grease --status=open --priority-max=P1
+```
+
 Review:
 - Epic description and current phase
 - Open child issues (bd list --parent=hq-rib --status=open)
+- Critical P0/P1 grease beads requiring immediate attention
 - Recent completions
 
 **Related tracking:**
