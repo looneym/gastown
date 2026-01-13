@@ -252,7 +252,7 @@ func (m *Manager) Start(foreground bool, agentOverride string, envOverrides []st
 	// Auto-hook patrol molecule on startup (hq-npqav fix)
 	// This ensures patrol runs automatically without relying on Claude agent
 	// to manually run `bd mol wisp mol-witness-patrol` from startup instructions.
-	_ = ensurePatrolHooked(townRoot, m.rig.Name) // Non-fatal - agent can hook manually if this fails
+	_ = ensurePatrolHooked(m.rig.Path, m.rig.Name) // Non-fatal - agent can hook manually if this fails
 
 	return nil
 }
@@ -335,8 +335,8 @@ func (m *Manager) Stop() error {
 // ensurePatrolHooked ensures a patrol molecule is hooked for the witness.
 // If no active patrol exists, creates and hooks one automatically.
 // This fixes hq-npqav - witnesses on new rigs failed to start patrol due to fragile manual flow.
-func ensurePatrolHooked(townRoot, rigName string) error {
-	beadsDir := beads.ResolveBeadsDir(townRoot)
+func ensurePatrolHooked(rigPath, rigName string) error {
+	beadsDir := beads.ResolveBeadsDir(rigPath)
 	assignee := fmt.Sprintf("%s/witness", rigName)
 
 	// Check if patrol already hooked or in_progress
