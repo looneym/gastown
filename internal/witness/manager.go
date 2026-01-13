@@ -1,9 +1,11 @@
 package witness
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -247,6 +249,11 @@ func (m *Manager) Start(foreground bool, agentOverride string, envOverrides []st
 	time.Sleep(2 * time.Second)
 	_ = t.NudgeSession(sessionID, session.PropulsionNudgeForRole("witness", witnessDir)) // Non-fatal
 
+	// Auto-hook patrol molecule on startup (hq-npqav fix)
+	// This ensures patrol runs automatically without relying on Claude agent
+	// to manually run `bd mol wisp mol-witness-patrol` from startup instructions.
+	_ = ensurePatrolHooked(townRoot, m.rig.Name) // Non-fatal - agent can hook manually if this fails
+
 	return nil
 }
 
@@ -323,4 +330,94 @@ func (m *Manager) Stop() error {
 	w.PID = 0
 
 	return m.saveState(w)
+}
+
+// ensurePatrolHooked ensures a patrol molecule is hooked for the witness.
+// If no active patrol exists, creates and hooks one automatically.
+// This fixes hq-npqav - witnesses on new rigs failed to start patrol due to fragile manual flow.
+func ensurePatrolHooked(townRoot, rigName string) error {
+	beadsDir := beads.ResolveBeadsDir(townRoot)
+	assignee := fmt.Sprintf("%s/witness", rigName)
+
+	// Check if patrol already hooked or in_progress
+	checkCmd := exec.Command("bd", "--no-daemon", "list", "--status=hooked,in_progress", "--type=epic", "--assignee="+assignee)
+	checkCmd.Dir = beadsDir
+	var stdout, stderr bytes.Buffer
+	checkCmd.Stdout = &stdout
+	checkCmd.Stderr = &stderr
+
+	if err := checkCmd.Run(); err == nil {
+		// Check if mol-witness-patrol is in the output
+		if strings.Contains(stdout.String(), "mol-witness-patrol") {
+			// Patrol already hooked - nothing to do
+			return nil
+		}
+	}
+
+	// No active patrol found - create and hook one
+	// First, find the proto ID from catalog
+	catalogCmd := exec.Command("bd", "--no-daemon", "mol", "catalog")
+	catalogCmd.Dir = beadsDir
+	stdout.Reset()
+	stderr.Reset()
+	catalogCmd.Stdout = &stdout
+	catalogCmd.Stderr = &stderr
+
+	if err := catalogCmd.Run(); err != nil {
+		return fmt.Errorf("listing molecule catalog: %w", err)
+	}
+
+	var protoID string
+	for _, line := range strings.Split(stdout.String(), "\n") {
+		if strings.Contains(line, "mol-witness-patrol") {
+			parts := strings.Fields(line)
+			if len(parts) > 0 {
+				protoID = strings.TrimSuffix(parts[0], ":")
+				break
+			}
+		}
+	}
+
+	if protoID == "" {
+		return fmt.Errorf("mol-witness-patrol proto not found in catalog")
+	}
+
+	// Create the patrol wisp
+	createCmd := exec.Command("bd", "--no-daemon", "mol", "wisp", "create", protoID, "--actor", "witness")
+	createCmd.Dir = beadsDir
+	stdout.Reset()
+	stderr.Reset()
+	createCmd.Stdout = &stdout
+	createCmd.Stderr = &stderr
+
+	if err := createCmd.Run(); err != nil {
+		return fmt.Errorf("creating patrol wisp: %w", err)
+	}
+
+	// Parse the created wisp ID from output
+	var wispID string
+	for _, line := range strings.Split(stdout.String(), "\n") {
+		if strings.Contains(line, "Root issue:") || strings.Contains(line, "Created") {
+			parts := strings.Fields(line)
+			for _, p := range parts {
+				if strings.HasPrefix(p, "wisp-") || strings.HasPrefix(p, "gt-") || strings.HasPrefix(p, "hq-") {
+					wispID = p
+					break
+				}
+			}
+		}
+	}
+
+	if wispID == "" {
+		return fmt.Errorf("created wisp but could not parse ID")
+	}
+
+	// Hook the wisp to the witness
+	hookCmd := exec.Command("bd", "--no-daemon", "update", wispID, "--status=hooked", "--assignee="+assignee)
+	hookCmd.Dir = beadsDir
+	if err := hookCmd.Run(); err != nil {
+		return fmt.Errorf("hooking patrol wisp %s: %w", wispID, err)
+	}
+
+	return nil
 }
