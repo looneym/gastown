@@ -11,6 +11,7 @@ import (
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/git"
 	"github.com/steveyegge/gastown/internal/mail"
+	"github.com/steveyegge/gastown/internal/polecat"
 	"github.com/steveyegge/gastown/internal/rig"
 	"github.com/steveyegge/gastown/internal/tmux"
 	"github.com/steveyegge/gastown/internal/util"
@@ -50,6 +51,16 @@ func HandlePolecatDone(workDir, rigName string, msg *mail.Message) *HandlerResul
 	if err != nil {
 		result.Error = fmt.Errorf("parsing POLECAT_DONE: %w", err)
 		return result
+	}
+
+	// Update polecat state to "done" (hq-c1jk fix)
+	// This makes the status visible in gt polecat list
+	if townRoot, err := workspace.Find(workDir); err == nil {
+		rigPath := filepath.Join(townRoot, rigName)
+		r := &rig.Rig{Name: rigName, Path: rigPath}
+		g := git.NewGit(rigPath)
+		polecatMgr := polecat.NewManager(r, g)
+		_ = polecatMgr.SetState(payload.PolecatName, polecat.StateDone) // Non-fatal
 	}
 
 	// Handle PHASE_COMPLETE: recycle polecat (session ends but worktree stays)

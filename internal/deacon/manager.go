@@ -75,6 +75,12 @@ func (m *Manager) Start(agentOverride string) error {
 		return fmt.Errorf("creating deacon directory: %w", err)
 	}
 
+	// Delete stale heartbeat file from previous session to prevent daemon
+	// from immediately killing the newly spawned Deacon due to stale timestamp.
+	// See: hq-2z4h (daemon heartbeat staleness bug)
+	heartbeatFile := filepath.Join(deaconDir, "heartbeat.json")
+	_ = os.Remove(heartbeatFile) // Ignore error if file doesn't exist
+
 	// Ensure Claude settings exist
 	if err := claude.EnsureSettingsForRole(deaconDir, "deacon"); err != nil {
 		return fmt.Errorf("ensuring Claude settings: %w", err)
